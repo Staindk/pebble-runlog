@@ -1,0 +1,816 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RunLog</title>
+<style>
+  body{margin:0;padding:18px 14px 40px;background:#0f1419;color:#e8edf2;
+       font-family:-apple-system,Roboto,"Segoe UI",sans-serif;
+       font-variant-numeric:tabular-nums}
+  h1{font-size:17px;letter-spacing:.18em;margin:0 0 2px;color:#ff5a1f}
+  .sub{color:#7d8a96;font-size:13px;margin:0 0 16px}
+  .card{background:#1a2128;border-radius:12px;padding:14px;margin-bottom:12px}
+  .rcard{display:flex;align-items:center;cursor:pointer}
+  .rcard .km{font-size:30px;font-weight:700;line-height:1;min-width:104px}
+  .rcard .km small{font-size:12px;font-weight:400;color:#7d8a96;margin-left:3px}
+  .rcard .info{flex:1;min-width:0}
+  .rcard .name{font-size:13px;color:#aeb9c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rcard .chips{font-size:13px;color:#7d8a96;margin-top:3px}
+  .badge{font-size:11px;border-radius:6px;padding:2px 6px;margin-left:8px;vertical-align:1px}
+  .b1{background:#143d23;color:#5ad17f}.b2{background:#46201a;color:#ff8d70}
+  .empty{color:#7d8a96;padding:30px 0;text-align:center}
+  button{appearance:none;border:0;border-radius:9px;padding:11px 14px;
+         font-size:14px;font-weight:600;cursor:pointer}
+  .dl{background:#ff5a1f;color:#fff}
+  .ghost{background:#26303a;color:#cfd8e0}
+  .danger{background:#26303a;color:#ff8d70}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .row button{flex:1;min-width:120px}
+  /* detail */
+  .back{color:#7d8a96;font-size:14px;margin:0 0 10px;cursor:pointer;display:inline-block}
+  #map{position:relative;height:250px;overflow:hidden;border-radius:12px;
+       background:#1a2128 repeating-linear-gradient(0deg,transparent,transparent 23px,#222b33 24px),
+                  repeating-linear-gradient(90deg,transparent,transparent 23px,#222b33 24px);
+       touch-action:none;margin-bottom:4px}
+  #tilenote{position:absolute;left:8px;top:8px;z-index:5;font-size:11px;color:#9aa6b1;
+       background:rgba(15,20,25,.7);padding:2px 7px;border-radius:5px;display:none}
+  .maptip{font-size:11px;color:#7d8a96;margin-left:6px}
+  #mapinner{will-change:transform}
+  #mapinner{position:absolute;left:0;top:0;will-change:transform}
+  #mapinner img{position:absolute;width:256px;height:256px;user-select:none;
+                -webkit-user-drag:none;pointer-events:none}
+  #mapsvg{position:absolute;left:0;top:0;pointer-events:none}
+  .mapbtns{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px;z-index:5}
+  .mapbtns button{width:36px;height:36px;padding:0;font-size:19px;background:rgba(15,20,25,.82);color:#e8edf2}
+  .attrib{position:absolute;right:6px;bottom:4px;font-size:10px;color:#9aa6b1;
+          background:rgba(15,20,25,.6);padding:1px 5px;border-radius:4px;z-index:5}
+  .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
+  .stat .cap{font-size:11px;letter-spacing:.1em;color:#7d8a96}
+  .stat .v{font-size:21px;font-weight:700;margin-top:1px}
+  .stat .v small{font-size:12px;font-weight:400;color:#7d8a96}
+  h2{font-size:12px;letter-spacing:.14em;color:#7d8a96;margin:20px 0 8px;font-weight:600}
+  canvas{width:100%;height:120px;display:block}
+  .split{display:flex;align-items:center;font-size:13px;margin:5px 0}
+  .split .n{width:26px;color:#7d8a96}
+  .split .bar{height:16px;background:#26303a;border-radius:4px;margin-right:8px}
+  .split .bar.best{background:#ff5a1f}
+  .split .t{width:46px}
+  .split .h{color:#7d8a96}
+  /* settings */
+  label{display:block;font-size:13px;color:#aeb9c4;margin:12px 0 4px}
+  input[type=text],input[type=password],select{width:100%;box-sizing:border-box;background:#0d1116;
+       color:#e8edf2;border:1px solid #26303a;border-radius:8px;padding:10px;font-size:14px}
+  .tog{display:flex;align-items:center;gap:10px;font-size:14px;margin-top:4px}
+  .tog input{width:20px;height:20px}
+  .note{font-size:12px;color:#7d8a96;margin-top:10px}
+  .logline{display:flex;gap:8px;font-size:12px;padding:3px 0;
+           border-bottom:1px solid #222b33;align-items:baseline}
+  .logline:last-child{border-bottom:none}
+  .lt{color:#7d8a96;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .lm{color:#c7d0d9;word-break:break-word}
+  .lm.lbad{color:#ff8585}
+  #logcard code{background:#0d1116;border-radius:4px;padding:1px 5px;font-size:11px}
+  #pwtoggle{background:#26303a;color:#c7d0d9;border:none;border-radius:8px;
+            padding:9px 12px;font-size:13px}
+  #dtype{display:flex;gap:8px;margin:2px 0 14px}
+  #dtype button{flex:1;background:#1a2128;color:#7d8a96;border:1px solid #26303a;
+            border-radius:8px;padding:8px 0;font-size:13px}
+  #dtype button.on{background:#26303a;color:#fff;border-color:#ff5a1f}
+  .foot{margin-top:20px}.foot button{width:100%}
+</style>
+</head>
+<body>
+
+<div id="vlist">
+  <h1>RUNLOG</h1>
+  <p class="sub" id="subline"></p>
+  <div id="list"></div>
+
+  <div class="card" id="setcard">
+    <h2 style="margin-top:0">RUN NAME</h2>
+    <label>Default run name template</label>
+    <input type="text" id="cfgname" placeholder="%Y-%m-%d_{activity}"
+           autocapitalize="none" autocorrect="off" spellcheck="false">
+    <p class="note" id="cfgnamehint">Date/time codes (strftime): %Y year, %y 2-digit year, %m month, %d day, %H hour, %M min, %S sec, %F date (YYYY-MM-DD), %T time (HH:MM:SS), %R HH:MM, %a/%A weekday, %b/%B month name, %p AM/PM, %j day-of-year, %D US date, %% literal %. Extras: {activity}/{Activity}, {part}/{Part} (morning/afternoon/evening/night). ({date} and {time} still work.) Blank = default %Y-%m-%d_{activity}.</p>
+    <h2>FILE FORMAT</h2>
+    <label>Export / upload format</label>
+    <select id="cfgfmt">
+      <option value="gpx">GPX (universal, text)</option>
+      <option value="tcx">TCX (Garmin, text)</option>
+      <option value="fit">FIT (binary)</option>
+    </select>
+    <p class="note">GPX and TCX upload anywhere. FIT is binary &mdash; ideal for Strava/Garmin/intervals, but the destination must accept .fit.</p>
+    <h2>UPLOAD</h2>
+    <p class="note" style="margin-top:0">Uploads are manual &mdash; press Upload on the watch debrief, or "Upload now" on a run below. Nothing leaves your phone on its own.</p>
+    <label>Destination</label>
+    <select id="cfgpreset" onchange="cfgUi()">
+      <option value="intervals">intervals.icu (API key)</option>
+      <option value="runalyze">Runalyze (personal token)</option>
+      <option value="fittrackee">FitTrackee (self-hosted)</option>
+      <option value="webdav">WebDAV / Nextcloud (PUT)</option>
+      <option value="custom">Custom webhook (POST)</option>
+    </select>
+    <div id="cfgurlrow">
+      <label>Endpoint URL</label>
+      <input type="text" id="cfgurl" placeholder="https://example.com/runs/upload">
+    </div>
+    <div id="cfgauthrow">
+      <label>Authorization (optional) &mdash; header value or user:pass</label>
+      <input type="text" id="cfgauth" placeholder="Bearer xxxx &middot; Basic xxxx &middot; user:password">
+    </div>
+    <div id="cfgkeyrow" style="display:none">
+      <label id="cfgkeylab">API key</label>
+      <input type="text" id="cfgkey" placeholder="">
+      <p class="note" id="cfgkeyhint"></p>
+    </div>
+    <div id="cfguserrow" style="display:none">
+      <label>FitTrackee email</label>
+      <input type="text" id="cfguser" placeholder="you@example.com"
+             autocapitalize="none" autocorrect="off" spellcheck="false"
+             inputmode="email" autocomplete="email">
+    </div>
+    <div id="cfgpassrow" style="display:none">
+      <label>FitTrackee password</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" id="cfgpass" placeholder="" style="flex:1"
+               autocapitalize="none" autocorrect="off" autocomplete="current-password">
+        <button type="button" id="pwtoggle" onclick="togglePw()">Show</button>
+      </div>
+      <p class="note">RunLog logs in to your instance itself and refreshes the token automatically when it expires. Credentials stay in the Pebble app on this phone.</p>
+    </div>
+    <div class="row">
+      <button class="dl" onclick="saveCfg()">Save settings &amp; close</button>
+    </div>
+    <p class="note">Settings and per-run actions apply when this page closes. Download buttons work without closing.</p>
+  </div>
+
+  <div class="card" id="logcard">
+    <h2 style="margin-top:0">LOG</h2>
+    <div id="loglines"></div>
+    <p class="note">Newest first &mdash; uploads, logins, GPS and saves. The same lines appear in <code>pebble logs</code>.</p>
+  </div>
+
+  <div class="foot">
+    <button class="ghost" onclick="clearAll()">Delete all runs</button>
+    <div style="height:10px"></div>
+    <button class="dl" onclick="closePage('')">Done</button>
+  </div>
+</div>
+
+<div id="vdetail" style="display:none">
+  <span class="back" onclick="showList()">&#8592; All runs</span>
+  <div id="dtitle" class="sub" style="margin:0 0 8px"></div>
+
+  <div id="map">
+    <div id="mapinner"></div>
+    <div id="tilenote">map tiles unavailable &mdash; route on grid</div>
+    <div class="mapbtns">
+      <button onclick="zoomBy(1)">+</button>
+      <button onclick="zoomBy(-1)">&#8722;</button>
+      <span class="maptip">pinch or double-tap to zoom</span>
+    </div>
+    <div class="attrib">&copy; OpenStreetMap contributors &copy; CARTO</div>
+  </div>
+
+  <div class="statgrid" id="dstats"></div>
+
+  <h2 id="hspeed"></h2><canvas id="cspeed"></canvas>
+  <h2 id="hele"></h2><canvas id="cele"></canvas>
+  <h2>HEART RATE <span style="float:right;letter-spacing:0" id="hrsum"></span></h2><canvas id="chr"></canvas>
+
+  <div id="dtype"></div>
+  <h2 id="hsplits"></h2>
+  <div id="splits"></div>
+
+  <div class="row">
+    <button class="dl" id="dlbtn" onclick="dl()">Download</button>
+    <button class="ghost" id="upbtn" onclick="uploadNow()" style="display:none">Upload now</button>
+    <button class="danger" onclick="delRun()">Delete run</button>
+  </div>
+</div>
+
+<script>
+var RUNS = "__RUNLOG_RUNS__";
+var CFG  = "__RUNLOG_CFG__";
+var MILES = "__RUNLOG_MILES__";
+var INITIAL = "__RUNLOG_INITIAL__";
+var LOGL = "__RUNLOG_LOG__";
+var CUR = -1;
+var UD = MILES ? 1609.344 : 1000;
+var UN = MILES ? 'mi' : 'km';
+
+function $(id){ return document.getElementById(id); }
+function z2(n){ return (n < 10 ? '0' : '') + n; }
+function fmtDur(s){ s = Math.round(s); var h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return (h ? h + ':' + z2(m) : m) + ':' + z2(s%60); }
+function fmtDist(m){ return (m/UD).toFixed(2); }
+function fmtPace(skm){ if (!skm) return '--:--';
+  var s = Math.round(MILES ? skm*1.609344 : skm);
+  return Math.floor(s/60) + ':' + z2(s%60); }
+function fmtSpeed(v){ if (!v) return '--';
+  return v >= 10 ? String(Math.round(v)) : v.toFixed(1); }
+function fmtEg(m){ return MILES ? Math.round(m*3.28084)+' ft' : Math.round(m)+' m'; }
+function actOf(r){ return (r.act >= 0 && r.act <= 2) ? r.act : 0; }
+function splitUnit(r){ return UD * (actOf(r) === 2 ? 5 : 1); }
+function paceOrSpeed(r, skm){          // rides read in km/h (mph), the rest in pace
+  if (!skm) return '--';
+  if (actOf(r) === 2) return fmtSpeed((3600/skm) * (MILES ? 0.6213712 : 1)) + ' ' + (MILES ? 'mph' : 'km/h');
+  return fmtPace(skm) + ' /' + UN;
+}
+
+/* ---------- exporters: TCX + FIT injected here by tools/build_page.js ---------- */
+/*__RUNLOG_EXPORTERS__*/
+
+/* ---------- GPX ---------- */
+function iso(t){ return new Date(t*1000).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+function gpx(r){
+  var o = ['<?xml version="1.0" encoding="UTF-8"?>\n',
+    '<gpx version="1.1" creator="RunLog for Pebble" ',
+    'xmlns="http://www.topografix.com/GPX/1/1" ',
+    'xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">\n',
+    '<metadata><time>' + iso(r.pts[0][0]) + '</time></metadata>\n',
+    '<trk><name>' + r.name + '</name><type>' +
+      ['running','walking','cycling'][actOf(r)] + '</type>\n<trkseg>\n'];
+  for (var i = 0; i < r.pts.length; i++) {
+    var p = r.pts[i];
+    if (p[5] && i > 0) o.push('</trkseg>\n<trkseg>\n');
+    o.push('<trkpt lat="' + p[1] + '" lon="' + p[2] + '">');
+    if (p[3] !== '' && p[3] !== null) o.push('<ele>' + p[3] + '</ele>');
+    o.push('<time>' + iso(p[0]) + '</time>');
+    var hr = p[4] > 0, cad = p.length > 6 && p[6] > 0;
+    if (hr || cad) {
+      o.push('<extensions><gpxtpx:TrackPointExtension>');
+      if (hr)  o.push('<gpxtpx:hr>' + p[4] + '</gpxtpx:hr>');
+      if (cad) o.push('<gpxtpx:cad>' + Math.round(p[6]/2) + '</gpxtpx:cad>');
+      o.push('</gpxtpx:TrackPointExtension></extensions>');
+    }
+    o.push('</trkpt>\n');
+  }
+  o.push('</trkseg>\n</trk>\n</gpx>\n');
+  return o.join('');
+}
+
+/* ---------- list view ---------- */
+function badge(up){
+  if (up === 1) return '<span class="badge b1">uploaded</span>';
+  if (up === 2) return '<span class="badge b2">upload failed</span>';
+  return '';
+}
+function showList(){
+  $('vdetail').style.display = 'none';
+  $('vlist').style.display = '';
+  CUR = -1;
+}
+function renderList(){
+  $('subline').innerHTML = RUNS.length + ' saved run' + (RUNS.length === 1 ? '' : 's') +
+    ' &middot; tap a run for the full debrief';
+  if (!RUNS.length) {
+    $('list').innerHTML = '<p class="empty">No runs saved yet.<br>Finish a run on the watch, then come back here.</p>';
+    return;
+  }
+  var h = '';
+  for (var i = RUNS.length - 1; i >= 0; i--) {
+    var r = RUNS[i];
+    h += '<div class="card rcard" onclick="showDetail(' + i + ')">' +
+      '<div class="km">' + fmtDist(r.dist) + '<small>' + UN + '</small></div>' +
+      '<div class="info"><div class="name">' + r.name + badge(r.up) + '</div>' +
+      '<div class="chips">' + fmtDur(r.mov || r.dur) + ' &middot; ' + paceOrSpeed(r, r.avgp) +
+      (r.avgHr ? ' &middot; &#9829; ' + r.avgHr : '') + '</div></div>' +
+      '<div style="color:#7d8a96">&#8250;</div></div>';
+  }
+  $('list').innerHTML = h;
+}
+
+/* ---------- detail view ---------- */
+function stat(cap, v, sub){
+  return '<div class="stat"><div class="cap">' + cap + '</div><div class="v">' + v +
+         (sub ? ' <small>' + sub + '</small>' : '') + '</div></div>';
+}
+function showDetail(i){
+  CUR = i;
+  var r = RUNS[i];
+  $('vlist').style.display = 'none';
+  $('vdetail').style.display = '';
+  $('dtitle').innerHTML = r.name + badge(r.up);
+
+  var best = bestSplit(r);
+  var ride = actOf(r) === 2;
+  var su = splitUnit(r) / UD;            // 1 or 5
+  $('dstats').innerHTML =
+    stat('DISTANCE', fmtDist(r.dist), UN) +
+    stat('MOVING TIME', fmtDur(r.mov || r.dur), r.mov && r.dur > r.mov + 5 ? fmtDur(r.dur) + ' total' : '') +
+    (ride ? stat('AVG SPEED', r.avgp ? fmtSpeed((3600/r.avgp) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
+          : stat('AVG PACE', fmtPace(r.avgp), '/' + UN)) +
+    stat('AVG HR', r.avgHr || '--', r.maxHr ? r.maxHr + ' max' : '') +
+    stat('ELEV GAIN', fmtEg(r.egain || 0), '') +
+    (ride ? stat('MAX SPEED', best ? fmtSpeed((3600/best) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
+          : stat('CADENCE', r.cad || '--', 'spm')) +
+    (ride ? stat('ELAPSED', fmtDur(r.dur), r.dur > (r.mov||r.dur) + 5 ? 'incl. stops' : '')
+          : stat('STEPS', r.steps || '--', '')) +
+    (ride ? stat('BEST ' + su + UN.toUpperCase(), best ? fmtSpeed((3600/best) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
+          : stat('BEST ' + UN.toUpperCase(), best ? fmtPace(best) : '--', '/' + UN));
+
+  $('hspeed').textContent = 'SPEED ' + (MILES ? 'MPH' : 'KM/H');
+  $('hele').textContent = 'ELEVATION';
+  $('hsplits').textContent = 'SPLITS (' + (actOf(r) === 2 ? '5 ' : '') + UN.toUpperCase() + ')';
+  var tns = ['Run', 'Walk', 'Ride'], th = '';
+  for (var ti = 0; ti < 3; ti++) {
+    th += '<button class="' + (actOf(r) === ti ? 'ton on' : 'ton') +
+          '" onclick="retype(' + ti + ')">' + tns[ti] + '</button>';
+  }
+  $('dtype').innerHTML = th;
+  $('hrsum').textContent = r.avgHr ? r.avgHr + ' avg / ' + r.maxHr + ' max' : '';
+  $('upbtn').style.display = ((CFG.url || CFG.key) ? '' : 'none');
+  $('upbtn').textContent = (r.up === 1) ? 'Re-upload' : 'Upload now';
+
+  series(r);
+  renderSplits(r);
+  initMap(r);
+}
+function bestSplit(r){
+  var b = 0, SU = splitUnit(r);
+  if (r.splits) for (var i = 0; i < r.splits.length; i++) {
+    var s = r.splits[i];
+    if (s.d > SU * 0.99) { var p = s.s / (s.d / 1000); if (!b || p < b) b = p; }
+  }
+  return b;
+}
+
+/* ---------- charts ---------- */
+/* Centered Gaussian moving average — same algorithm as src/pkjs/smooth.js
+ * (the page is standalone, so it carries a copy). null = missing sample,
+ * brk[i] = a pause starts at point i, never smoothed across. */
+function ksmooth(vals, sigma, brk){
+  var n = vals.length;
+  if (n < 3 || !(sigma > 0)) return vals.slice();
+  var halfW = Math.max(1, Math.round(sigma * 3));
+  var w = [1], j;
+  for (j = 1; j <= halfW; j++) w.push(Math.exp(-(j*j) / (2*sigma*sigma)));
+  var out = new Array(n);
+  for (var i = 0; i < n; i++) {
+    if (vals[i] === null || vals[i] === undefined) { out[i] = null; continue; }
+    var acc = vals[i], wt = 1;
+    for (j = 1; j <= halfW; j++) {
+      var L = i - j;
+      if (L < 0 || (brk && brk[L + 1])) break;
+      if (vals[L] !== null && vals[L] !== undefined) { acc += vals[L]*w[j]; wt += w[j]; }
+    }
+    for (j = 1; j <= halfW; j++) {
+      var R = i + j;
+      if (R >= n || (brk && brk[R])) break;
+      if (vals[R] !== null && vals[R] !== undefined) { acc += vals[R]*w[j]; wt += w[j]; }
+    }
+    out[i] = acc / wt;
+  }
+  return out;
+}
+function rad(x){ return x * Math.PI / 180; }
+function hav(a, b){
+  var R = 6371000, dla = rad(b[1]-a[1]), dlo = rad(b[2]-a[2]);
+  var s = Math.sin(dla/2)*Math.sin(dla/2) +
+          Math.cos(rad(a[1]))*Math.cos(rad(b[1]))*Math.sin(dlo/2)*Math.sin(dlo/2);
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+function series(r){
+  var xs = [0], rawSpd = [null], hr = [r.pts[0][4] || null], ele = [r.pts[0][3] === '' ? null : r.pts[0][3]];
+  var brk = [false], cum = 0;
+  for (var i = 1; i < r.pts.length; i++) {
+    var a = r.pts[i-1], b = r.pts[i];
+    var d = b[5] ? 0 : hav(a, b);
+    var dt = b[0] - a[0];
+    cum += d;
+    xs.push(cum / UD);
+    brk.push(!!b[5]);
+    rawSpd.push((b[5] || dt <= 0) ? null : d / dt);   // m/s, null across pauses
+    hr.push(b[4] > 0 ? b[4] : null);
+    ele.push(b[3] === '' ? null : b[3]);
+  }
+  // kernel width scales with how dense the recording is; elevation is the
+  // noisiest signal (GPS altitude) so it gets a wider one
+  var sg = Math.max(2, Math.min(10, r.pts.length / 120));
+  var speed = ksmooth(rawSpd, sg, brk).map(function(v){
+    return (v && v > 0.2) ? v * (MILES ? 2.236936 : 3.6) : null;
+  });
+  var hrS  = ksmooth(hr,  sg,       brk);
+  var eleS = ksmooth(ele, sg * 1.5, brk);
+  chart('cspeed', xs, speed, { color:'#ff5a1f',
+        fmt:function(v){ return fmtSpeed(v); } });
+  chart('cele', xs, eleS, { color:'#8fa3b5', area:true,
+        fmt:function(v){ return Math.round(MILES ? v*3.28084 : v); } });
+  chart('chr', xs, hrS, { color:'#ff4d6a',
+        fmt:function(v){ return Math.round(v); } });
+}
+function chart(id, xs, ys, o){
+  var c = $(id), dpr = window.devicePixelRatio || 1;
+  var W = c.clientWidth || 320, H = 120;
+  c.width = W * dpr; c.height = H * dpr;
+  var g = c.getContext('2d'); g.scale(dpr, dpr);
+  var mn = Infinity, mx = -Infinity, n = xs.length, i;
+  for (i = 0; i < n; i++) if (ys[i] !== null) { if (ys[i] < mn) mn = ys[i]; if (ys[i] > mx) mx = ys[i]; }
+  if (mn === Infinity) { g.fillStyle = '#7d8a96'; g.font = '12px sans-serif';
+    g.fillText('no data', 10, 60); return; }
+  if (mx - mn < 1e-6) { mx += 1; mn -= 1; }
+  var pad = (mx - mn) * 0.12; mn -= pad; mx += pad;
+  var L = 38, R = 6, T = 8, B = 16;
+  var xmax = xs[n-1] || 1;
+  function X(x){ return L + (W-L-R) * x / xmax; }
+  function Y(v){ var f = (v-mn)/(mx-mn); if (o.invert) f = 1-f; return T + (H-T-B)*(1-f); }
+  g.strokeStyle = '#26303a'; g.fillStyle = '#7d8a96'; g.font = '10px sans-serif';
+  g.lineWidth = 1;
+  for (i = 0; i <= 2; i++) {
+    var v = mn + (mx-mn)*i/2, y = Y(v);
+    g.beginPath(); g.moveTo(L, y); g.lineTo(W-R, y); g.stroke();
+    g.fillText(o.fmt(v), 2, y + 3);
+  }
+  for (i = 1; i <= 3; i++) {
+    var xv = xmax*i/3;
+    g.fillText(xv.toFixed(1), X(xv) - 8, H - 4);
+  }
+  g.strokeStyle = o.color; g.lineWidth = 2; g.lineJoin = 'round';
+  g.beginPath();
+  var pen = false;
+  var step = Math.max(1, Math.floor(n / 300));
+  for (i = 0; i < n; i += step) {
+    if (ys[i] === null) { pen = false; continue; }
+    var px = X(xs[i]), py = Y(ys[i]);
+    if (!pen) { g.moveTo(px, py); pen = true; } else g.lineTo(px, py);
+  }
+  g.stroke();
+  if (o.area) {
+    g.lineTo(X(xs[n-1]), Y(mn)); g.lineTo(L, Y(mn)); g.closePath();
+    g.fillStyle = 'rgba(143,163,181,.18)'; g.fill();
+  }
+}
+
+/* ---------- splits ---------- */
+function renderSplits(r){
+  if (!r.splits || !r.splits.length) { $('splits').innerHTML = '<p class="note">No splits.</p>'; return; }
+  var SU = splitUnit(r), mult = SU / UD, ride = actOf(r) === 2;
+  var worst = 0, best = 1e9, i, paces = [];
+  for (i = 0; i < r.splits.length; i++) {
+    var s = r.splits[i], p = s.s / (s.d / 1000);
+    paces.push(p);
+    if (p > worst) worst = p;
+    if (s.d > SU*0.99 && p < best) best = p;
+  }
+  var h = '';
+  for (i = 0; i < r.splits.length; i++) {
+    var s2 = r.splits[i], p2 = paces[i];
+    var full = s2.d > SU*0.99;
+    var wpx = Math.max(8, Math.round(140 * (worst ? (worst/p2) : 1)));
+    var label = full ? ((i+1) * mult) : (s2.d/UD).toFixed(1);
+    var val = ride ? fmtSpeed((3600/p2) * (MILES ? 0.6213712 : 1)) : fmtPace(p2);
+    h += '<div class="split"><div class="n">' + label + '</div>' +
+      '<div class="bar' + (full && Math.abs(p2-best) < 0.5 ? ' best' : '') + '" style="width:' + wpx + 'px"></div>' +
+      '<div class="t">' + val + '</div>' +
+      '<div class="h">' + (s2.hr ? '&#9829; ' + s2.hr : '') + '</div></div>';
+  }
+  $('splits').innerHTML = h;
+}
+
+/* ---------- map (OSM slippy tiles) ---------- */
+var MZ = 15, MC = null, MDRAG = null, MPINCH = null;
+function ll2w(lat, lon, z){            // world pixel coords at zoom z
+  var n = 256 * Math.pow(2, z);
+  var la = rad(lat);
+  return { x: (lon + 180) / 360 * n,
+           y: (1 - Math.log(Math.tan(la) + 1/Math.cos(la)) / Math.PI) / 2 * n };
+}
+function initMap(r){
+  var mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180, i;
+  for (i = 0; i < r.pts.length; i++) {
+    var p = r.pts[i];
+    if (p[1] < mnLa) mnLa = p[1]; if (p[1] > mxLa) mxLa = p[1];
+    if (p[2] < mnLo) mnLo = p[2]; if (p[2] > mxLo) mxLo = p[2];
+  }
+  var el = $('map'), W = el.clientWidth || 320, H = el.clientHeight || 250;
+  var z;
+  for (z = 17; z > 3; z--) {
+    var a = ll2w(mxLa, mnLo, z), b = ll2w(mnLa, mxLo, z);
+    if (b.x - a.x < W - 50 && b.y - a.y < H - 50) break;
+  }
+  MZ = z;
+  MC = { lat: (mnLa + mxLa) / 2, lon: (mnLo + mxLo) / 2 };
+  renderMap();
+  if (!el._wired) {
+    el._wired = true;
+    el.addEventListener('touchstart', touchStart, {passive:false});
+    el.addEventListener('touchmove', touchMove, {passive:false});
+    el.addEventListener('touchend', touchEnd);
+    el.addEventListener('mousedown', dragStart);
+    el.addEventListener('mousemove', dragMove);
+    el.addEventListener('mouseup', dragEnd);
+    el.addEventListener('mouseleave', dragEnd);
+    el.addEventListener('dblclick', function(e){ zoomAt(1, pt(e)); });
+    el.addEventListener('wheel', function(e){
+      zoomAt(e.deltaY < 0 ? 1 : -1, pt(e));
+      if (e.cancelable) e.preventDefault();
+    }, {passive:false});
+  }
+}
+function zoomBy(d){ zoomAt(d, null); }
+/* Zoom keeping the point under the cursor/pinch fixed: convert it to a
+ * geo coord at the old zoom, change zoom, then shift the centre so that
+ * same coord lands back under the cursor. */
+function zoomAt(d, p){
+  var nz = Math.max(4, Math.min(18, MZ + d));
+  if (nz === MZ) return;
+  var el = $('map'), W = el.clientWidth || 320, H = el.clientHeight || 250;
+  if (p) {
+    var rect = el.getBoundingClientRect();
+    var px = p.x - rect.left - W / 2, py = p.y - rect.top - H / 2;
+    var c = ll2w(MC.lat, MC.lon, MZ);
+    var n0 = 256 * Math.pow(2, MZ);
+    var gx = c.x + px, gy = c.y + py;            // world px of the anchor (old z)
+    var lon = gx / n0 * 360 - 180;
+    var tt = Math.PI * (1 - 2 * gy / n0);
+    var lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(tt) - Math.exp(-tt)));
+    MZ = nz;
+    var n1 = 256 * Math.pow(2, MZ);
+    var aw = ll2w(lat, lon, MZ);                  // anchor in new-zoom world px
+    var cx = aw.x - px, cy = aw.y - py;           // new centre world px
+    MC.lon = cx / n1 * 360 - 180;
+    var t2 = Math.PI * (1 - 2 * cy / n1);
+    MC.lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(t2) - Math.exp(-t2)));
+  } else {
+    MZ = nz;
+  }
+  renderMap();
+}
+function dist2(a, b){ var dx = a.x - b.x, dy = a.y - b.y; return Math.sqrt(dx*dx + dy*dy); }
+function mid2(a, b){ return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+function touchStart(e){
+  if (e.touches.length >= 2){
+    MDRAG = null;
+    var a = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    var b = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+    MPINCH = { d0: dist2(a, b), z0: MZ, scale: 1, last: mid2(a, b) };
+    if (e.cancelable) e.preventDefault();
+  } else {
+    MPINCH = null;
+    dragStart(e);
+  }
+}
+function touchMove(e){
+  if (MPINCH && e.touches.length >= 2){
+    var a = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    var b = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+    var rect = $('map').getBoundingClientRect();
+    MPINCH.last = mid2(a, b);
+    MPINCH.scale = dist2(a, b) / (MPINCH.d0 || 1);
+    // live visual feedback; the real re-tile happens on release
+    $('mapinner').style.transformOrigin =
+      (MPINCH.last.x - rect.left) + 'px ' + (MPINCH.last.y - rect.top) + 'px';
+    $('mapinner').style.transform = 'scale(' + MPINCH.scale + ')';
+    if (e.cancelable) e.preventDefault();
+  } else {
+    dragMove(e);
+  }
+}
+function touchEnd(e){
+  if (MPINCH){
+    if (!e.touches || e.touches.length === 0){
+      $('mapinner').style.transform = '';
+      $('mapinner').style.transformOrigin = '';
+      var steps = Math.round(Math.log(MPINCH.scale || 1) / Math.LN2);
+      var at = MPINCH.last;
+      MPINCH = null;
+      if (steps !== 0) zoomAt(steps, at);
+    }
+    return;
+  }
+  dragEnd();
+}
+function pt(e){ var t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY }; }
+function dragStart(e){ MDRAG = { s: pt(e), dx: 0, dy: 0 }; }
+function dragMove(e){
+  if (!MDRAG) return;
+  var p = pt(e);
+  MDRAG.dx = p.x - MDRAG.s.x; MDRAG.dy = p.y - MDRAG.s.y;
+  $('mapinner').style.transform = 'translate(' + MDRAG.dx + 'px,' + MDRAG.dy + 'px)';
+  if (e.cancelable) e.preventDefault();
+}
+function dragEnd(){
+  if (!MDRAG) return;
+  if (MDRAG.dx || MDRAG.dy) {
+    var c = ll2w(MC.lat, MC.lon, MZ);
+    var n = 256 * Math.pow(2, MZ);
+    var nx = c.x - MDRAG.dx, ny = c.y - MDRAG.dy;
+    MC.lon = nx / n * 360 - 180;
+    var t = Math.PI * (1 - 2 * ny / n);
+    MC.lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t)));
+    renderMap();
+  }
+  MDRAG = null;
+}
+function renderMap(){
+  var r = RUNS[CUR]; if (!r) return;
+  var el = $('map'), W = el.clientWidth || 320, H = el.clientHeight || 250;
+  var inner = $('mapinner');
+  inner.style.transform = '';
+  inner.innerHTML = '';
+  var c = ll2w(MC.lat, MC.lon, MZ);
+  var ox = c.x - W/2, oy = c.y - H/2;            // viewport origin in world px
+  var tx0 = Math.floor(ox/256) - 1, ty0 = Math.floor(oy/256) - 1;
+  var tx1 = Math.floor((ox+W)/256) + 1, ty1 = Math.floor((oy+H)/256) + 1;
+  var maxT = Math.pow(2, MZ) - 1;
+  var fx = tx0*256 - ox, fy = ty0*256 - oy;      // field offset in viewport
+  var tTotal = 0, tFail = 0;
+  $('tilenote').style.display = 'none';
+  function tileFailed(){
+    tFail++;
+    if (tFail > tTotal / 2) $('tilenote').style.display = '';
+  }
+  for (var tx = tx0; tx <= tx1; tx++) {
+    for (var ty = Math.max(0, ty0); ty <= Math.min(maxT, ty1); ty++) {
+      var im = document.createElement('img');
+      var wx = ((tx % (maxT+1)) + maxT + 1) % (maxT+1);
+      tTotal++;
+      im.referrerPolicy = 'no-referrer';
+      im.onerror = function(){
+        // CARTO failed -> try OSM once; if that fails too, count it
+        var fb = this.getAttribute('data-fallback');
+        if (fb) {
+          this.removeAttribute('data-fallback');
+          this.src = fb;
+        } else {
+          this.onerror = null;
+          this.style.display = 'none';
+          tileFailed();
+        }
+      };
+      im.setAttribute('data-fallback', 'https://tile.openstreetmap.org/' + MZ + '/' + wx + '/' + ty + '.png');
+      im.src = 'https://basemaps.cartocdn.com/rastertiles/voyager/' + MZ + '/' + wx + '/' + ty + '.png';
+      im.style.left = (fx + (tx-tx0)*256) + 'px';
+      im.style.top  = (fy + (ty-ty0)*256) + 'px';
+      inner.appendChild(im);
+    }
+  }
+  // route overlay
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('id', 'mapsvg');
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  var d = '', started = false;
+  for (var i = 0; i < r.pts.length; i++) {
+    var w = ll2w(r.pts[i][1], r.pts[i][2], MZ);
+    var px = (w.x - ox).toFixed(1), py = (w.y - oy).toFixed(1);
+    d += (started && !r.pts[i][5] ? 'L' : 'M') + px + ' ' + py;
+    started = true;
+  }
+  var casing = document.createElementNS(NS, 'path');
+  casing.setAttribute('d', d); casing.setAttribute('fill', 'none');
+  casing.setAttribute('stroke', '#0f1419'); casing.setAttribute('stroke-width', '7');
+  casing.setAttribute('stroke-linejoin', 'round'); casing.setAttribute('opacity', '.6');
+  var path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', d); path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#ff5a1f'); path.setAttribute('stroke-width', '3.5');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(casing); svg.appendChild(path);
+  function dot(p, col){
+    var w2 = ll2w(p[1], p[2], MZ);
+    var cc = document.createElementNS(NS, 'circle');
+    cc.setAttribute('cx', w2.x - ox); cc.setAttribute('cy', w2.y - oy);
+    cc.setAttribute('r', 5.5); cc.setAttribute('fill', col);
+    cc.setAttribute('stroke', '#fff'); cc.setAttribute('stroke-width', '2');
+    svg.appendChild(cc);
+  }
+  dot(r.pts[0], '#27c466');
+  dot(r.pts[r.pts.length-1], '#ff4d6a');
+  inner.appendChild(svg);
+}
+
+/* ---------- actions ---------- */
+function dl(){
+  var r = RUNS[CUR];
+  var fmt = CFG.fmt || 'gpx';
+  var base = r.name.replace(/[^\w.\-]+/g, '_');
+  var blob, ext;
+  if (fmt === 'tcx')      { blob = new Blob([rlTcxBuild(r)], { type: 'application/vnd.garmin.tcx+xml' }); ext = '.tcx'; }
+  else if (fmt === 'fit') { blob = new Blob([rlFitBuild(r)], { type: 'application/octet-stream' }); ext = '.fit'; }
+  else                    { blob = new Blob([gpx(r)], { type: 'application/gpx+xml' }); ext = '.gpx'; }
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = base + ext;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.parentNode.removeChild(a); }, 4000);
+}
+function togglePw(){
+  var f = $('cfgpass');
+  var show = f.type !== 'text';
+  f.type = show ? 'text' : 'password';
+  $('pwtoggle').textContent = show ? 'Hide' : 'Show';
+}
+/* The close payload rides in a URL fragment that different phone apps
+ * decode differently (some not at all, some once, some with '+' -> space
+ * semantics). URL-safe base64 only uses [A-Za-z0-9-_=], which every one
+ * of those passes leaves untouched, so credentials survive verbatim. */
+var B64C = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function b64u(str){
+  var s = unescape(encodeURIComponent(str));   // UTF-8 bytes
+  var out = '', i = 0, a, b, c;
+  while (i < s.length) {
+    a = s.charCodeAt(i++) & 255;
+    b = i < s.length ? s.charCodeAt(i++) & 255 : -1;
+    c = i < s.length ? s.charCodeAt(i++) & 255 : -1;
+    out += B64C.charAt(a >> 2);
+    out += B64C.charAt(((a & 3) << 4) | (b < 0 ? 0 : b >> 4));
+    out += b < 0 ? '=' : B64C.charAt(((b & 15) << 2) | (c < 0 ? 0 : c >> 6));
+    out += c < 0 ? '=' : B64C.charAt(c & 63);
+  }
+  return out;
+}
+function closePage(act){
+  var payload = act ? 'b64.' + b64u(act) : '';
+  location.href = 'pebblejs://close#' + encodeURIComponent(payload);
+}
+function uploadNow(){ closePage(JSON.stringify({ act:'retry', idx: CUR })); }
+function retype(to){
+  if (actOf(RUNS[CUR]) === to) return;          // already that type
+  closePage(JSON.stringify({ act:'retype', idx: CUR, to: to }));
+}
+function delRun(){
+  if (confirm('Delete this run?')) closePage(JSON.stringify({ act:'del', idx: CUR }));
+}
+function clearAll(){
+  if (confirm('Delete all saved runs?')) closePage(JSON.stringify({ act:'clear' }));
+}
+function renderLog(){
+  if (!LOGL || !LOGL.length) {
+    $('loglines').innerHTML = '<p class="note">Nothing logged yet.</p>';
+    return;
+  }
+  function p2(x){ return (x < 10 ? '0' : '') + x; }
+  var h = '';
+  for (var i = LOGL.length - 1; i >= 0; i--) {
+    var d = new Date(LOGL[i][0] * 1000);
+    var msg = String(LOGL[i][1]).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    var bad = /FAILED|unusable|rejected/.test(msg);
+    h += '<div class="logline"><span class="lt">' +
+         p2(d.getMonth()+1) + '-' + p2(d.getDate()) + ' ' +
+         p2(d.getHours()) + ':' + p2(d.getMinutes()) + '</span>' +
+         '<span class="lm' + (bad ? ' lbad' : '') + '">' + msg + '</span></div>';
+  }
+  $('loglines').innerHTML = h;
+}
+function cfgUi(){
+  var p = $('cfgpreset').value;
+  var hosted = (p === 'intervals' || p === 'runalyze');
+  var ft = (p === 'fittrackee');
+  $('cfgurlrow').style.display = hosted ? 'none' : '';
+  $('cfgauthrow').style.display = (hosted || ft) ? 'none' : '';
+  $('cfgkeyrow').style.display = hosted ? '' : 'none';
+  $('cfguserrow').style.display = ft ? '' : 'none';
+  $('cfgpassrow').style.display = ft ? '' : 'none';
+  $('cfgurl').placeholder =
+    (p === 'webdav') ? 'https://cloud.example.com/remote.php/dav/files/you/Runs/' :
+    ft               ? 'https://fittrackee.your-server.lan' :
+                       'https://example.com/runs/upload';
+  if (p === 'intervals') {
+    $('cfgkeylab').textContent = 'intervals.icu API key';
+    $('cfgkeyhint').textContent = 'intervals.icu \u2192 Settings \u2192 Developer Settings \u2192 API key. Runs upload to your account via the official API.';
+  } else if (p === 'runalyze') {
+    $('cfgkeylab').textContent = 'Runalyze personal token';
+    $('cfgkeyhint').textContent = 'runalyze.com \u2192 Account \u2192 Personal API \u2192 create token (activity_push).';
+  }
+}
+function saveCfg(){
+  closePage(JSON.stringify({ act:'cfg', cfg:{
+    auto: 0,
+    name: $('cfgname').value.replace(/^\s+|\s+$/g, ''),
+    fmt: $('cfgfmt').value,
+    preset: $('cfgpreset').value,
+    url: $('cfgurl').value.replace(/^\s+|\s+$/g, ''),
+    auth: $('cfgauth').value.replace(/^\s+|\s+$/g, ''),
+    key: $('cfgkey').value.replace(/^\s+|\s+$/g, ''),
+    user: $('cfguser').value.replace(/^\s+|\s+$/g, ''),
+    pass: $('cfgpass').value
+  }}));
+}
+
+/* ---------- boot ---------- */
+$('cfgname').value = CFG.name || '';
+$('cfgfmt').value = CFG.fmt || 'gpx';
+if ($('dlbtn')) $('dlbtn').textContent = 'Download .' + (CFG.fmt || 'gpx');
+$('cfgpreset').value = CFG.preset || 'custom';
+$('cfgurl').value = CFG.url || '';
+$('cfgauth').value = CFG.auth || '';
+$('cfgkey').value = CFG.key || '';
+$('cfguser').value = CFG.user || '';
+$('cfgpass').value = CFG.pass || '';
+cfgUi();
+renderLog();
+renderList();
+if (INITIAL) {
+  var initIdx = -1;
+  for (var ri = 0; ri < RUNS.length; ri++) {
+    if (RUNS[ri].start === INITIAL) { initIdx = ri; break; }
+  }
+  if (initIdx < 0 && RUNS.length) initIdx = RUNS.length - 1;
+  if (initIdx >= 0) showDetail(initIdx);
+}
+</script>
+</body>
+</html>

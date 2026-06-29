@@ -1,0 +1,142 @@
+{
+  "name": "runlog",
+  "author": "Kai Bagley",
+  "version": "1.18.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "RunLog",
+    "uuid": "8f2c3a1e-6b4d-4e7a-9c0f-2d5e8b714a96",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "basalt",
+      "diorite",
+      "emery"
+    ],
+    "capabilities": [
+      "location",
+      "health",
+      "configurable"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "CMD",
+      "HR",
+      "STEPS",
+      "UNITS",
+      "AUTOP",
+      "SPLITP",
+      "GPSOK",
+      "ACC",
+      "DIST",
+      "PACE",
+      "AVGP",
+      "EGAIN",
+      "SPLIT",
+      "SAVED",
+      "AVGHR",
+      "MAXHR",
+      "MOVS",
+      "TRACK",
+      "EXPST",
+      "APAUSE",
+      "PACEG",
+      "HRG",
+      "MODE",
+      "EXPERR",
+      "TSPAN",
+      "RENAME"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "MENU_ICON",
+          "file": "menu_icon.png",
+          "menuIcon": true
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_SETTINGS",
+          "file": "icons/settings.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_START",
+          "file": "icons/start.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_CONFIRM",
+          "file": "icons/confirm.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_DECLINE",
+          "file": "icons/decline.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_PAUSE",
+          "file": "icons/pause.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_STOP",
+          "file": "icons/stop.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_RUN",
+          "file": "icons/run.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_WALK",
+          "file": "icons/walk.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_BIKE",
+          "file": "icons/bike.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_UP",
+          "file": "icons/up.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_DOWN",
+          "file": "icons/down.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_MENU",
+          "file": "icons/menu.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_UPLOAD",
+          "file": "icons/upload.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_TRASH",
+          "file": "icons/trash.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_MIC",
+          "file": "icons/mic.png"
+        }
+      ]
+    }
+  }
+}
