@@ -1,0 +1,8 @@
+# Pebble SDK / Waf build output
+/build/
+/.lock-waf_linux_build
+/.wafpickle-*
+
+# Editor and operating-system noise
+*~
+.DS_Store
