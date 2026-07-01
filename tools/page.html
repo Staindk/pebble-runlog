@@ -303,6 +303,7 @@ function showDetail(i){
     (ride ? stat('AVG SPEED', r.avgp ? fmtSpeed((3600/r.avgp) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
           : stat('AVG PACE', fmtPace(r.avgp), '/' + UN)) +
     stat('AVG HR', r.avgHr || '--', r.maxHr ? r.maxHr + ' max' : '') +
+    (r.vo2max ? stat('VO&#8322;MAX', r.vo2max, 'ml/kg/min') : '') +
     stat('ELEV GAIN', fmtEg(r.egain || 0), '') +
     (ride ? stat('MAX SPEED', best ? fmtSpeed((3600/best) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
           : stat('CADENCE', r.cad || '--', 'spm')) +

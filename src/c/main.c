@@ -47,6 +47,7 @@ Settings g_set = {
   .autopause = true,
   .splits = true,
   .max_hr = 180,
+  .rest_hr = 0,
   .mode = MODE_RUN,
 };
 
@@ -396,6 +397,10 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   }
   if ((t = dict_find(iter, MESSAGE_KEY_MAXHR))) {
     g_stats.max_hr = (int)t->value->int32;
+    stats_changed = true;
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_VO2))) {
+    g_stats.vo2 = (int)t->value->int32;
     stats_changed = true;
   }
   if ((t = dict_find(iter, MESSAGE_KEY_MOVS))) {
@@ -781,8 +786,10 @@ static void settings_load(void) {
   if (persist_exists(PKEY_SPLITS))  g_set.splits    = persist_read_bool(PKEY_SPLITS);
   if (persist_exists(PKEY_MAXHR))   g_set.max_hr    = persist_read_int(PKEY_MAXHR);
   if (persist_exists(PKEY_MODE))    g_set.mode      = persist_read_int(PKEY_MODE);
+  if (persist_exists(PKEY_RESTHR))  g_set.rest_hr   = persist_read_int(PKEY_RESTHR);
   // ensure values are within sensible ranges
   if (g_set.max_hr < 80 || g_set.max_hr > 220) g_set.max_hr = 180;
+  if (g_set.rest_hr < 0 || g_set.rest_hr > 120) g_set.rest_hr = 0;
   if (g_set.mode < 0 || g_set.mode >= MODE_COUNT) g_set.mode = MODE_RUN;
 }
 
@@ -793,6 +800,7 @@ void settings_save_and_sync(void) {
   persist_write_bool(PKEY_SPLITS,  g_set.splits);
   persist_write_int(PKEY_MAXHR,    g_set.max_hr);
   persist_write_int(PKEY_MODE,     g_set.mode);
+  persist_write_int(PKEY_RESTHR,   g_set.rest_hr);
   // Send the updated settings to the phone so pkjs can mirror them
   DictionaryIterator *out;
   if (app_message_outbox_begin(&out) == APP_MSG_OK) {
@@ -800,6 +808,8 @@ void settings_save_and_sync(void) {
     dict_write_uint8(out, MESSAGE_KEY_AUTOP,  (uint8_t)(g_set.autopause ? 1 : 0));
     dict_write_uint8(out, MESSAGE_KEY_SPLITP, (uint8_t)(g_set.splits    ? 1 : 0));
     dict_write_uint8(out, MESSAGE_KEY_MODE,   (uint8_t)g_set.mode);
+    dict_write_uint8(out, MESSAGE_KEY_MHR,    (uint8_t)g_set.max_hr);   // for phone VO2max
+    dict_write_uint8(out, MESSAGE_KEY_RHR,    (uint8_t)g_set.rest_hr);  // for VO2max reserve model
     app_message_outbox_send();
   }
   // Update UI to reflect units/mode immediately

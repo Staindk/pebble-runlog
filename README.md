@@ -79,6 +79,34 @@ All plots — the phone's speed/elevation/HR charts and the watch's pace/HR mini
 
 Raw GPS positions jitter, and summing the straight-line hops between jittery fixes systematically *over*-counts distance — worst at 1 Hz, where the noise compounds over hundreds of fixes. RunLog runs every accepted fix through a **constant-velocity Kalman filter** (`src/pkjs/kalman.js`) before it touches distance, track or splits. Measurement noise comes from each fix's reported accuracy (so confident fixes pull hard and fuzzy ones barely move the estimate), process noise from a plausible human acceleration (so a steady stride/pedal is tracked tightly while real turns and pace changes still come through), and velocity is seeded from the first step so there's no startup lag. In a realistic 1 Hz, ±2.5 m test the raw track overshot true distance by ~27 %; filtered, it's within ~1–2 %. Clean, well-spaced fixes are left essentially untouched. This is the right tool when GPS is the *only* signal — there's no onboard accelerometer or barometer exposed to fuse on this hardware — and it's deliberately the same algorithm production fitness apps use for the same problem. One subtlety: **auto-pause keys off raw GPS speed, not the filtered track**, because the filter's velocity inertia would lag a sudden stop and make pause/resume sluggish.
 
+### VO₂max estimate
+
+The phone estimates a running **VO₂max** after each run. It shows on the watch summary (a full-width row under the stat grid, runs only) and on the debrief page. It uses the standard submaximal field method that wrist devices use: the ACSM running equation gives the oxygen cost of each steady pace (`VO₂ = 0.2·speed + 3.5`, speed in m/min), the heart rate at that pace is turned into a fraction of capacity, and `VO₂ / fraction` is the implied VO₂max — taken as the median over qualifying points.
+
+To be as accurate as the available signal allows, the estimate:
+- **drops the first two minutes** of the run, where heart rate still lags the pace and would otherwise inflate the figure;
+- counts **only metabolic steady state** — points mid-acceleration, where HR and pace are out of step, are skipped;
+- uses the more accurate **heart-rate-reserve model** (`%VO₂R = %HRR`, Karvonen) when a resting HR is set, falling back to Swain's `%VO₂max = (%HRmax − 37)/0.64` otherwise;
+- only counts steady aerobic running (pace 7.2–24 km/h, 65–100 % of max HR).
+
+For best accuracy, set both heart-rate values in watch **Settings**: **Max heart rate** (ideally your true measured max, not a `220 − age` guess — a wrong max scales the number directly) and **Resting HR** (optional; turning it on switches to the more accurate reserve model). Both are synced to the phone; until max HR is set it defaults to 190.
+
+**Why there's no hill correction:** the ACSM equation has a grade term, but applying it needs per-segment grade, and the Pebble exposes only GPS altitude (no barometric altimeter to watchapps). GPS vertical error is large enough that a grade term would add more noise than it removes, so the estimate is deliberately level-ground. That, plus the fact that it leans on a population HR–VO₂ relationship rather than your personal physiology and can't see cardiac drift or running economy, is why this is a fitness *trend* to watch over many runs, not a lab value. Running only; walks, rides, very easy runs, and runs without heart rate produce no figure.
+
+### Cadence
+
+Cadence comes from the watch's wrist step counter, and two things are worth knowing:
+
+- **The displayed number is doubled by the viewer.** RunLog records a per-foot-rate value (around 75-85 for a typical run). The GPX `gpxtpx:cad` field isn't standardised for running — some tools read it as steps-per-minute, others as a per-foot rate they double. FitTrackee doubles it, so ~80 shows as ~160 spm, which is correct; a tool that doesn't double would show roughly half. RunLog leaves the value as recorded rather than guess a convention.
+- **Per-point cadence is a windowed rate.** Each point's cadence is the step rate over a short trailing window, not the gap between two step messages. The step counter updates coarsely and arrives over Bluetooth with timing jitter, so a single mistimed message used to fling individual points to roughly double or half the true rate (the running total and the average stayed correct throughout). The window removes those spikes without shifting the bulk value.
+
+### Elevation
+
+Elevation comes only from phone GPS (Pebble exposes no barometric altimeter to apps), so RunLog treats it cautiously:
+
+- **Exported elevation is smoothed.** Raw GPS vertical noise would otherwise inflate the gain a downstream tool computes from the track — on a flat run it can read 100 m+ of phantom climb. RunLog stores a smoothed elevation on each point, so GPX/TCX/FIT and the page chart stay consistent with the gain it displays (which adds a further 3 m dead-band and is the most conservative figure).
+- **Absolute values can look wrong, even negative.** The Geolocation API reports height above the WGS84 *ellipsoid*, not mean sea level; the two differ by the local geoid offset, which near Perth is about −30 m. That offset shifts every point equally, so it doesn't affect elevation *gain* — only the absolute numbers. Correcting it would need an on-device geoid model, which isn't practical, so the raw ellipsoidal height is kept.
+
 ## Run name
 
 Every saved activity is named from a template you control, set in **Default run name** on the phone page. The default is `%Y-%m-%d_{activity}` (e.g. `2026-06-25_run`). Date and time use the classic **strftime codes**: `%Y` / `%y` year, `%m` month, `%d` day, `%H` / `%I` hour (24 / 12), `%M` minute, `%S` second, `%p` AM/PM, `%a` / `%A` weekday, `%b` / `%B` month name, `%j` day-of-year, plus the usual shorthands `%F` (`YYYY-MM-DD`), `%T` (`HH:MM:SS`), `%R` (`HH:MM`) and `%D` (US `MM/DD/YY`); `%%` is a literal percent. On top of those are two named **extras** in braces: `{activity}` / `{Activity}` (run/walk/ride) and `{part}` / `{Part}` (morning / afternoon / evening / night, by start time). (`{date}` and `{time}` are kept as back-compat aliases for `%Y-%m-%d` and `HH.MM`.) Anything else is kept verbatim, an unknown `%x` or `{x}` passes through untouched, and leaving the field blank falls back to the default. Re-typing an activity on the phone (Run ⇄ Walk ⇄ Ride) regenerates the name for the new type; the name also drives the GPX/TCX/FIT filename and the activity title sent to your server. You can also **rename a run by voice on the watch**: open the debrief menu, pick Rename (the mic), and speak a name — it replaces the template-generated one for that run.

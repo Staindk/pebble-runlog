@@ -161,3 +161,57 @@ console.log('\nALL FORMAT TESTS PASSED');
   assert(eFilt < eRaw / 3, 'kalman: filter cuts distance error to <1/3 of raw');
   console.log('KALMAN OK');
 })();
+
+/* ---- VO2max estimator: accuracy behaviours ---------------------------- */
+(function () {
+  var src = require('fs').readFileSync(__dirname + '/../src/pkjs/index.js', 'utf8');
+  function rad(d){return d*Math.PI/180;}
+  function haversine(a,b){var R=6371000;var dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
+    var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(s)));}
+  var estimateVo2max;
+  eval('estimateVo2max = function ' + src.slice(
+    src.indexOf('function estimateVo2max') + 'function estimateVo2max'.length,
+    src.indexOf('function finalizeRun')));
+
+  // build pts at a steady speed (m/min) and HR, appended to `pts`
+  var LAT = -31.95, COS = Math.cos(LAT * Math.PI / 180);
+  function seg(pts, vmpm, hr, n) {
+    var t = pts.length ? pts[pts.length - 1][0] : 0;
+    var lon = pts.length ? pts[pts.length - 1][2] : 115.85;
+    for (var i = 0; i < n; i++) {
+      t += 5; lon += (vmpm / 60 * 5) / (111320 * COS);
+      pts.push([t, LAT, lon, '', hr, 0, 0]);
+    }
+    return pts;
+  }
+
+  // (a) Swain (no resting HR): 200 m/min, HR 160, max 190 -> ~59
+  var a = seg([], 200, 160, 60);
+  assert(estimateVo2max(a, 0, 190, 0) === 59, 'Swain steady run = 59 (got ' + estimateVo2max(a,0,190,0) + ')');
+
+  // (b) Karvonen (resting HR 50): same run -> ~54, and lower than Swain
+  var bv = estimateVo2max(a, 0, 190, 50);
+  assert(bv >= 52 && bv <= 56, 'Karvonen reserve model ~54 (got ' + bv + ')');
+  assert(bv < estimateVo2max(a, 0, 190, 0), 'reserve model differs from %HRmax model');
+
+  // (c) warm-up excluded: 30 junk low-HR points in the first 2 min, then steady -> still 59
+  var c = seg([], 200, 120, 30);   // <2 min, HR 120 (warm-up artefact), all dropped
+  seg(c, 200, 160, 50);
+  assert(estimateVo2max(c, 0, 190, 0) === 59, 'warm-up points excluded (got ' + estimateVo2max(c,0,190,0) + ')');
+
+  // (d) too little steady aerobic data -> 0 (no estimate)
+  assert(estimateVo2max(seg([], 200, 160, 20), 0, 190, 0) === 0, 'short run yields no estimate');
+  assert(estimateVo2max(seg([], 90, 150, 80), 0, 190, 0) === 0, 'sub-running pace yields no estimate');
+
+  // (e) non-run activity never estimates
+  assert(estimateVo2max(a, 1, 190, 0) === 0 && estimateVo2max(a, 2, 190, 0) === 0, 'walk/ride yield no estimate');
+
+  // (f) steady-state filter is exercised by a surging run and still returns a sane figure
+  var g = seg([], 200, 160, 40); seg(g, 330, 160, 8); seg(g, 200, 160, 40);  // mid-run surge (clamped/rejected)
+  var gv = estimateVo2max(g, 0, 190, 0);
+  assert(gv >= 55 && gv <= 63, 'surge does not corrupt the estimate (got ' + gv + ')');
+
+  console.log('VO2MAX estimator OK');
+})();
+

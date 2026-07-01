@@ -22,6 +22,7 @@ static int s_off = 0, s_content_h = 0, s_scr_h = 0;   // manual scrolling
 
 static char s_dist_buf[20], s_upload_buf[26];
 static char s_v[6][16];                       // stat grid values
+static char s_vo2_buf[20];                    // VO2max cell (runs only)
 static char s_pace_rng[24], s_hr_rng[16];     // graph caption ranges
 static int s_upload_state = -1;               // -1 hidden, 0 uploading, 1 ok, 2 failed
 static int s_upload_err = 0;                  // HTTP status of a failure, 0 = network
@@ -197,7 +198,9 @@ static void prv_metric(GContext *ctx, GRect r, const char *cap,
 
 static void prv_stats_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
-  int row_h = b.size.h / 3;
+  bool run  = (g_set.mode == MODE_RUN);     // only runs carry a VO2max estimate
+  int rows  = run ? 4 : 3;                  // extra full-width row for VO2max
+  int row_h = b.size.h / rows;
   int col_w = b.size.w / 2;
   bool ride = (g_set.mode == MODE_CYCLE);
   const char *caps[6] = { "MOVING", ride ? "AVG SPEED" : "AVG PACE",
@@ -206,10 +209,10 @@ static void prv_stats_update(Layer *layer, GContext *ctx) {
                           ride ? "ELAPSED" : "STEPS" };
 
   graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack));
-  for (int rrow = 1; rrow < 3; rrow++) {
+  for (int rrow = 1; rrow < rows; rrow++) {                 // dividers between every row
     graphics_draw_line(ctx, GPoint(10, rrow * row_h), GPoint(b.size.w - 10, rrow * row_h));
   }
-  for (int rrow = 0; rrow < 3; rrow++) {
+  for (int rrow = 0; rrow < 3; rrow++) {                    // column split for the paired rows
     graphics_draw_line(ctx, GPoint(col_w, rrow * row_h + 6),
                             GPoint(col_w, (rrow + 1) * row_h - 6));
   }
@@ -219,6 +222,10 @@ static void prv_stats_update(Layer *layer, GContext *ctx) {
                        (i % 2) ? (b.size.w - col_w) : col_w, row_h);
     prv_metric(ctx, cell, caps[i], s_v[i],
                (i == 1) ? prv_accent() : GColorBlack, s_big);
+  }
+  if (run) {   // VO2max spans the full width of the 4th row
+    prv_metric(ctx, GRect(0, 3 * row_h, b.size.w, row_h),
+               "VO2 MAX", s_vo2_buf, prv_accent(), false);
   }
 }
 
@@ -242,6 +249,8 @@ static void prv_fill_texts(void) {
   }
   snprintf(s_v[3], sizeof(s_v[3]), "+%d %s",
            egain_display(g_stats.egain_m), g_set.miles ? "ft" : "m");
+  if (g_stats.vo2 > 0) snprintf(s_vo2_buf, sizeof(s_vo2_buf), "%d ml/kg/min", g_stats.vo2);
+  else                 snprintf(s_vo2_buf, sizeof(s_vo2_buf), "--");
   if (ride) {
     // fastest sustained speed comes from the pace graph's fastest bucket
     if (g_stats.pace_n >= 2) fmt_speed(s_v[4], sizeof(s_v[4]), g_stats.pace_min);
@@ -437,7 +446,7 @@ static void prv_load(Window *window) {
   s_scr_h = b.size.h;
   const int track_h  = s_big ? 112 : 88;
   const int graph_h  = s_big ? 64 : 56;     // per graph, incl. caption
-  const int stats_h  = s_big ? 126 : 111;   // 3 rows
+  const int stats_h  = (s_big ? 42 : 37) * (g_set.mode == MODE_RUN ? 4 : 3);  // +1 row for VO2max on runs
 
   s_menu = 0; s_off = 0;
   window_set_background_color(window, GColorWhite);

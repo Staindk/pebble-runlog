@@ -44,7 +44,7 @@ function mkPts() {
 }
 var RUN_A = {
   name: 'Run 2026-06-10 06.45', start: 1750000000000,
-  dist: 1340, dur: 480, mov: 460, avgp: 343, avgHr: 151, maxHr: 162,
+  dist: 1340, dur: 480, mov: 460, avgp: 343, avgHr: 151, maxHr: 162, vo2max: 52,
   egain: 12, cad: 168, steps: 1290, mi: 0,
   splits: [{ d: 1000, s: 343, hr: 150 }, { d: 340, s: 117, hr: 154 }],
   up: 1, pts: mkPts()
@@ -217,6 +217,7 @@ function lastAction(dom) {
    'CADENCE', 'STEPS', 'BEST KM'].forEach(function (cap) {
     assert(stats.indexOf(cap) >= 0, 'stat ' + cap);
   });
+  assert(stats.indexOf('ml/kg/min') >= 0 && stats.indexOf('52') >= 0, 'VO2max stat rendered for a run');
   assert(stats.indexOf('1.34') >= 0, 'detail distance');
   assert(stats.indexOf('7:40') >= 0, 'moving time 460 s');
   assert(stats.indexOf('151') >= 0 && stats.indexOf('162 max') >= 0, 'HR stats');

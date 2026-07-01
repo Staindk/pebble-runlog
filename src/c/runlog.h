@@ -8,6 +8,7 @@
 #define PKEY_SPLITS  3
 #define PKEY_MAXHR   4
 #define PKEY_MODE    5
+#define PKEY_RESTHR  6
 
 // Watch -> phone commands (shared between main.c and summary.c)
 enum { CMD_START = 1, CMD_PAUSE = 2, CMD_RESUME = 3, CMD_STOP = 4,
@@ -25,6 +26,7 @@ typedef struct {
   bool autopause;
   bool splits;      // split alerts on/off
   int  max_hr;      // zones derived as 60/70/80/90 % of this
+  int  rest_hr;     // resting HR for the VO2max reserve model; 0 = off
   int  mode;        // MODE_RUN / MODE_WALK / MODE_CYCLE
 } Settings;
 
@@ -41,6 +43,7 @@ typedef struct {
   int mov_s;        // phone moving time
   int avgp_s;       // average pace, seconds per km
   int avg_hr, max_hr;
+  int vo2;          // estimated VO2max (ml/kg/min), 0 = n/a; runs only
   int steps;
   int egain_m;
   GPoint trk[TRACK_MAX_PTS];  // normalised 0..200, y top-down

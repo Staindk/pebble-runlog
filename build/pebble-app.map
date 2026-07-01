@@ -60,7 +60,7 @@ Archive member included to satisfy reference by file (symbol)
 Allocating common symbols
 Common symbol       size              file
 
-g_stats             0x1a0             src/c/main.c.25.o
+g_stats             0x1a4             src/c/main.c.25.o
 
 Discarded input sections
 
@@ -1430,7 +1430,7 @@ LOAD /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../
  .note.gnu.build-id
                 0x00000084       0x24 linker stubs
 
-.text           0x000000a8     0x3be4
+.text           0x000000a8     0x3dc9
  *(.text)
  .text          0x000000a8       0x14 /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
  .text          0x000000bc       0xa0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_aeabi_ldivmod.o)
@@ -1525,709 +1525,726 @@ LOAD /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../
  .text.prv_select_long
                 0x0000123c       0x44 src/c/main.c.25.o
  .text.prv_inbox
-                0x00001280      0x420 src/c/main.c.25.o
+                0x00001280      0x43c src/c/main.c.25.o
  .text.hr_zone_color
-                0x000016a0       0x58 src/c/main.c.25.o
-                0x000016a0                hr_zone_color
+                0x000016bc       0x58 src/c/main.c.25.o
+                0x000016bc                hr_zone_color
  .text.prv_chrome_update
-                0x000016f8      0x178 src/c/main.c.25.o
+                0x00001714      0x178 src/c/main.c.25.o
  .text.comms_send_cmd
-                0x00001870        0x4 src/c/main.c.25.o
-                0x00001870                comms_send_cmd
+                0x0000188c        0x4 src/c/main.c.25.o
+                0x0000188c                comms_send_cmd
  .text.comms_send_rename
-                0x00001874       0x34 src/c/main.c.25.o
-                0x00001874                comms_send_rename
+                0x00001890       0x34 src/c/main.c.25.o
+                0x00001890                comms_send_rename
  .text.main_workout_discarded
-                0x000018a8       0x64 src/c/main.c.25.o
-                0x000018a8                main_workout_discarded
+                0x000018c4       0x64 src/c/main.c.25.o
+                0x000018c4                main_workout_discarded
  .text.phone_config_open
-                0x0000190c       0x18 src/c/main.c.25.o
-                0x0000190c                phone_config_open
+                0x00001928       0x18 src/c/main.c.25.o
+                0x00001928                phone_config_open
  .text.startup.main
-                0x00001924      0x124 src/c/main.c.25.o
-                0x00001924                main
+                0x00001940      0x14c src/c/main.c.25.o
+                0x00001940                main
  .text.settings_save_and_sync
-                0x00001a48       0xa0 src/c/main.c.25.o
-                0x00001a48                settings_save_and_sync
+                0x00001a8c       0xcc src/c/main.c.25.o
+                0x00001a8c                settings_save_and_sync
  .text.prv_down_click
-                0x00001ae8       0x50 src/c/main.c.25.o
+                0x00001b58       0x50 src/c/main.c.25.o
  .text.prv_unload
-                0x00001b38       0x24 src/c/settings.c.25.o
+                0x00001ba8       0x24 src/c/settings.c.25.o
  .text.prv_fill_subtitles
-                0x00001b5c      0x114 src/c/settings.c.25.o
+                0x00001bcc      0x140 src/c/settings.c.25.o
  .text.prv_load
-                0x00001c70      0x100 src/c/settings.c.25.o
+                0x00001d0c      0x118 src/c/settings.c.25.o
  .text.prv_select
-                0x00001d70       0x94 src/c/settings.c.25.o
+                0x00001e24       0xb0 src/c/settings.c.25.o
  .text.settings_window_push
-                0x00001e04       0x48 src/c/settings.c.25.o
-                0x00001e04                settings_window_push
+                0x00001ed4       0x48 src/c/settings.c.25.o
+                0x00001ed4                settings_window_push
  .text.prv_unload
-                0x00001e4c       0xb8 src/c/summary.c.25.o
+                0x00001f1c       0xb8 src/c/summary.c.25.o
  .text.prv_summary_clicks
-                0x00001f04       0x40 src/c/summary.c.25.o
+                0x00001fd4       0x40 src/c/summary.c.25.o
  .text.prv_text
-                0x00001f44       0x5c src/c/summary.c.25.o
+                0x00002014       0x5c src/c/summary.c.25.o
  .text.prv_scroll_by
-                0x00001fa0       0x5c src/c/summary.c.25.o
+                0x00002070       0x5c src/c/summary.c.25.o
  .text.prv_draw_text
-                0x00001ffc       0x42 src/c/summary.c.25.o
- *fill*         0x0000203e        0x2 
+                0x000020cc       0x42 src/c/summary.c.25.o
+ *fill*         0x0000210e        0x2 
+ .text.prv_metric
+                0x00002110       0xa0 src/c/summary.c.25.o
  .text.prv_stats_update
-                0x00002040      0x1f8 src/c/summary.c.25.o
+                0x000021b0      0x1dc src/c/summary.c.25.o
  .text.prv_apply_mode
-                0x00002238       0xd4 src/c/summary.c.25.o
+                0x0000238c       0xd4 src/c/summary.c.25.o
  .text.prv_fill_texts
-                0x0000230c      0x280 src/c/summary.c.25.o
+                0x00002460      0x2d8 src/c/summary.c.25.o
  .text.prv_show_upload
-                0x0000258c       0xdc src/c/summary.c.25.o
+                0x00002738       0xdc src/c/summary.c.25.o
  .text.prv_load
-                0x00002668      0x328 src/c/summary.c.25.o
+                0x00002814      0x344 src/c/summary.c.25.o
  .text.prv_dictation_cb
-                0x00002990       0x44 src/c/summary.c.25.o
+                0x00002b58       0x44 src/c/summary.c.25.o
  .text.prv_back_click
-                0x000029d4       0x1c src/c/summary.c.25.o
+                0x00002b9c       0x1c src/c/summary.c.25.o
  .text.prv_select_click
-                0x000029f0       0x74 src/c/summary.c.25.o
+                0x00002bb8       0x74 src/c/summary.c.25.o
  .text.prv_down_click
-                0x00002a64       0x34 src/c/summary.c.25.o
+                0x00002c2c       0x34 src/c/summary.c.25.o
  .text.prv_up_click
-                0x00002a98       0x30 src/c/summary.c.25.o
+                0x00002c60       0x30 src/c/summary.c.25.o
  .text.prv_graph.constprop.0
-                0x00002ac8      0x1a0 src/c/summary.c.25.o
+                0x00002c90      0x1a0 src/c/summary.c.25.o
  .text.prv_graphs_update
-                0x00002c68       0xf4 src/c/summary.c.25.o
+                0x00002e30       0xf4 src/c/summary.c.25.o
  .text.prv_track_point.constprop.0
-                0x00002d5c       0x70 src/c/summary.c.25.o
+                0x00002f24       0x70 src/c/summary.c.25.o
  .text.prv_track_update
-                0x00002dcc      0x38c src/c/summary.c.25.o
+                0x00002f94      0x38c src/c/summary.c.25.o
  .text.summary_set_upload
-                0x00003158       0x18 src/c/summary.c.25.o
-                0x00003158                summary_set_upload
+                0x00003320       0x18 src/c/summary.c.25.o
+                0x00003320                summary_set_upload
  .text.summary_window_push
-                0x00003170       0x84 src/c/summary.c.25.o
-                0x00003170                summary_window_push
+                0x00003338       0x84 src/c/summary.c.25.o
+                0x00003338                summary_window_push
  .text.app_event_loop
-                0x000031f4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000031f4                app_event_loop
- .text.app_message_open
-                0x00003200        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003200                app_message_open
- .text.app_timer_register
-                0x0000320c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000320c                app_timer_register
- .text.app_timer_reschedule
-                0x00003218        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003218                app_timer_reschedule
- .text.clock_copy_time_string
-                0x00003224        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003224                clock_copy_time_string
- .text.dict_find
-                0x00003230        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003230                dict_find
- .text.dict_write_cstring
-                0x0000323c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000323c                dict_write_cstring
- .text.dict_write_int32
-                0x00003248        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003248                dict_write_int32
- .text.dict_write_uint8
-                0x00003254        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003254                dict_write_uint8
- .text.fonts_get_system_font
-                0x00003260        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003260                fonts_get_system_font
- .text.gbitmap_create_with_resource
-                0x0000326c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000326c                gbitmap_create_with_resource
- .text.gbitmap_destroy
-                0x00003278        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003278                gbitmap_destroy
- .text.graphics_context_set_compositing_mode
-                0x00003284        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003284                graphics_context_set_compositing_mode
- .text.graphics_draw_bitmap_in_rect
-                0x00003290        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003290                graphics_draw_bitmap_in_rect
- .text.graphics_draw_circle
-                0x0000329c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000329c                graphics_draw_circle
- .text.graphics_draw_line
-                0x000032a8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032a8                graphics_draw_line
- .text.graphics_draw_pixel
-                0x000032b4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032b4                graphics_draw_pixel
- .text.graphics_draw_round_rect
-                0x000032c0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032c0                graphics_draw_round_rect
- .text.graphics_fill_circle
-                0x000032cc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032cc                graphics_fill_circle
- .text.graphics_fill_rect
-                0x000032d8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032d8                graphics_fill_rect
- .text.layer_add_child
-                0x000032e4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032e4                layer_add_child
- .text.layer_create
-                0x000032f0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032f0                layer_create
- .text.layer_create_with_data
-                0x000032fc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000032fc                layer_create_with_data
- .text.layer_destroy
-                0x00003308        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003308                layer_destroy
- .text.layer_get_bounds
-                0x00003314        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003314                layer_get_bounds
- .text.layer_get_data
-                0x00003320        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003320                layer_get_data
- .text.layer_mark_dirty
-                0x0000332c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000332c                layer_mark_dirty
- .text.layer_set_update_proc
-                0x00003338        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003338                layer_set_update_proc
- .text.light_enable_interaction
-                0x00003344        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003344                light_enable_interaction
- .text.memcpy   0x00003350        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003350                memcpy
- .text.persist_exists
-                0x0000335c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000335c                persist_exists
- .text.persist_read_bool
-                0x00003368        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003368                persist_read_bool
- .text.persist_read_int
-                0x00003374        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003374                persist_read_int
- .text.persist_write_bool
-                0x00003380        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003380                persist_write_bool
- .text.persist_write_int
-                0x0000338c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000338c                persist_write_int
- .text.scroll_layer_add_child
-                0x00003398        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003398                scroll_layer_add_child
- .text.scroll_layer_create
-                0x000033a4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033a4                scroll_layer_create
- .text.scroll_layer_destroy
-                0x000033b0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033b0                scroll_layer_destroy
- .text.scroll_layer_get_layer
                 0x000033bc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033bc                scroll_layer_get_layer
- .text.scroll_layer_set_content_offset
+                0x000033bc                app_event_loop
+ .text.app_message_open
                 0x000033c8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033c8                scroll_layer_set_content_offset
- .text.scroll_layer_set_content_size
+                0x000033c8                app_message_open
+ .text.app_timer_register
                 0x000033d4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033d4                scroll_layer_set_content_size
- .text.simple_menu_layer_create
+                0x000033d4                app_timer_register
+ .text.app_timer_reschedule
                 0x000033e0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033e0                simple_menu_layer_create
- .text.simple_menu_layer_destroy
+                0x000033e0                app_timer_reschedule
+ .text.clock_copy_time_string
                 0x000033ec        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033ec                simple_menu_layer_destroy
- .text.simple_menu_layer_get_layer
+                0x000033ec                clock_copy_time_string
+ .text.dict_find
                 0x000033f8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000033f8                simple_menu_layer_get_layer
- .text.snprintf
+                0x000033f8                dict_find
+ .text.dict_write_cstring
                 0x00003404        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003404                snprintf
- .text.strcpy   0x00003410        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003410                strcpy
- .text.tick_timer_service_subscribe
+                0x00003404                dict_write_cstring
+ .text.dict_write_int32
+                0x00003410        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003410                dict_write_int32
+ .text.dict_write_uint8
                 0x0000341c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000341c                tick_timer_service_subscribe
- .text.tick_timer_service_unsubscribe
+                0x0000341c                dict_write_uint8
+ .text.fonts_get_system_font
                 0x00003428        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003428                tick_timer_service_unsubscribe
- .text.vibes_double_pulse
+                0x00003428                fonts_get_system_font
+ .text.gbitmap_create_with_resource
                 0x00003434        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003434                vibes_double_pulse
- .text.vibes_long_pulse
+                0x00003434                gbitmap_create_with_resource
+ .text.gbitmap_destroy
                 0x00003440        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003440                vibes_long_pulse
- .text.vibes_short_pulse
+                0x00003440                gbitmap_destroy
+ .text.graphics_context_set_compositing_mode
                 0x0000344c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000344c                vibes_short_pulse
- .text.window_create
+                0x0000344c                graphics_context_set_compositing_mode
+ .text.graphics_draw_bitmap_in_rect
                 0x00003458        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003458                window_create
- .text.window_destroy
+                0x00003458                graphics_draw_bitmap_in_rect
+ .text.graphics_draw_circle
                 0x00003464        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003464                window_destroy
- .text.window_get_root_layer
+                0x00003464                graphics_draw_circle
+ .text.graphics_draw_line
                 0x00003470        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003470                window_get_root_layer
- .text.window_set_click_config_provider
+                0x00003470                graphics_draw_line
+ .text.graphics_draw_pixel
                 0x0000347c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000347c                window_set_click_config_provider
- .text.window_set_window_handlers
+                0x0000347c                graphics_draw_pixel
+ .text.graphics_draw_round_rect
                 0x00003488        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003488                window_set_window_handlers
- .text.window_stack_pop
+                0x00003488                graphics_draw_round_rect
+ .text.graphics_fill_circle
                 0x00003494        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003494                window_stack_pop
- .text.window_stack_push
+                0x00003494                graphics_fill_circle
+ .text.graphics_fill_rect
                 0x000034a0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034a0                window_stack_push
- .text.app_message_outbox_begin
+                0x000034a0                graphics_fill_rect
+ .text.layer_add_child
                 0x000034ac        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034ac                app_message_outbox_begin
- .text.app_message_outbox_send
+                0x000034ac                layer_add_child
+ .text.layer_create
                 0x000034b8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034b8                app_message_outbox_send
- .text.app_message_register_inbox_received
+                0x000034b8                layer_create
+ .text.layer_create_with_data
                 0x000034c4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034c4                app_message_register_inbox_received
- .text.window_long_click_subscribe
+                0x000034c4                layer_create_with_data
+ .text.layer_destroy
                 0x000034d0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034d0                window_long_click_subscribe
- .text.window_single_click_subscribe
+                0x000034d0                layer_destroy
+ .text.layer_get_bounds
                 0x000034dc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034dc                window_single_click_subscribe
- .text.graphics_draw_text
+                0x000034dc                layer_get_bounds
+ .text.layer_get_data
                 0x000034e8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034e8                graphics_draw_text
- .text.graphics_context_set_fill_color
+                0x000034e8                layer_get_data
+ .text.layer_mark_dirty
                 0x000034f4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000034f4                graphics_context_set_fill_color
- .text.graphics_context_set_stroke_color
+                0x000034f4                layer_mark_dirty
+ .text.layer_set_update_proc
                 0x00003500        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003500                graphics_context_set_stroke_color
- .text.graphics_context_set_text_color
+                0x00003500                layer_set_update_proc
+ .text.light_enable_interaction
                 0x0000350c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000350c                graphics_context_set_text_color
- .text.window_set_background_color
-                0x00003518        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003518                window_set_background_color
- .text.gbitmap_get_bounds
+                0x0000350c                light_enable_interaction
+ .text.memcpy   0x00003518        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003518                memcpy
+ .text.persist_exists
                 0x00003524        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003524                gbitmap_get_bounds
- .text.graphics_context_set_stroke_width
+                0x00003524                persist_exists
+ .text.persist_read_bool
                 0x00003530        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003530                graphics_context_set_stroke_width
- .text.text_layer_create
+                0x00003530                persist_read_bool
+ .text.persist_read_int
                 0x0000353c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000353c                text_layer_create
- .text.text_layer_destroy
+                0x0000353c                persist_read_int
+ .text.persist_write_bool
                 0x00003548        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003548                text_layer_destroy
- .text.text_layer_get_layer
+                0x00003548                persist_write_bool
+ .text.persist_write_int
                 0x00003554        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003554                text_layer_get_layer
- .text.text_layer_set_background_color
+                0x00003554                persist_write_int
+ .text.scroll_layer_add_child
                 0x00003560        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003560                text_layer_set_background_color
- .text.text_layer_set_font
+                0x00003560                scroll_layer_add_child
+ .text.scroll_layer_create
                 0x0000356c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000356c                text_layer_set_font
- .text.text_layer_set_text
+                0x0000356c                scroll_layer_create
+ .text.scroll_layer_destroy
                 0x00003578        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003578                text_layer_set_text
- .text.text_layer_set_text_alignment
+                0x00003578                scroll_layer_destroy
+ .text.scroll_layer_get_layer
                 0x00003584        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003584                text_layer_set_text_alignment
- .text.text_layer_set_text_color
+                0x00003584                scroll_layer_get_layer
+ .text.scroll_layer_set_content_offset
                 0x00003590        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x00003590                text_layer_set_text_color
- .text.dictation_session_create
+                0x00003590                scroll_layer_set_content_offset
+ .text.scroll_layer_set_content_size
                 0x0000359c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x0000359c                dictation_session_create
- .text.dictation_session_destroy
+                0x0000359c                scroll_layer_set_content_size
+ .text.simple_menu_layer_create
                 0x000035a8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000035a8                dictation_session_destroy
- .text.dictation_session_start
+                0x000035a8                simple_menu_layer_create
+ .text.simple_menu_layer_destroy
                 0x000035b4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000035b4                dictation_session_start
- .text.health_service_sum_today
+                0x000035b4                simple_menu_layer_destroy
+ .text.simple_menu_layer_get_layer
                 0x000035c0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000035c0                health_service_sum_today
- .text.health_service_peek_current_value
+                0x000035c0                simple_menu_layer_get_layer
+ .text.snprintf
                 0x000035cc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000035cc                health_service_peek_current_value
+                0x000035cc                snprintf
+ .text.strcpy   0x000035d8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000035d8                strcpy
+ .text.tick_timer_service_subscribe
+                0x000035e4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000035e4                tick_timer_service_subscribe
+ .text.tick_timer_service_unsubscribe
+                0x000035f0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000035f0                tick_timer_service_unsubscribe
+ .text.vibes_double_pulse
+                0x000035fc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000035fc                vibes_double_pulse
+ .text.vibes_long_pulse
+                0x00003608        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003608                vibes_long_pulse
+ .text.vibes_short_pulse
+                0x00003614        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003614                vibes_short_pulse
+ .text.window_create
+                0x00003620        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003620                window_create
+ .text.window_destroy
+                0x0000362c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000362c                window_destroy
+ .text.window_get_root_layer
+                0x00003638        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003638                window_get_root_layer
+ .text.window_set_click_config_provider
+                0x00003644        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003644                window_set_click_config_provider
+ .text.window_set_window_handlers
+                0x00003650        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003650                window_set_window_handlers
+ .text.window_stack_pop
+                0x0000365c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000365c                window_stack_pop
+ .text.window_stack_push
+                0x00003668        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003668                window_stack_push
+ .text.app_message_outbox_begin
+                0x00003674        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003674                app_message_outbox_begin
+ .text.app_message_outbox_send
+                0x00003680        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003680                app_message_outbox_send
+ .text.app_message_register_inbox_received
+                0x0000368c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000368c                app_message_register_inbox_received
+ .text.window_long_click_subscribe
+                0x00003698        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003698                window_long_click_subscribe
+ .text.window_single_click_subscribe
+                0x000036a4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036a4                window_single_click_subscribe
+ .text.graphics_draw_text
+                0x000036b0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036b0                graphics_draw_text
+ .text.graphics_context_set_fill_color
+                0x000036bc        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036bc                graphics_context_set_fill_color
+ .text.graphics_context_set_stroke_color
+                0x000036c8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036c8                graphics_context_set_stroke_color
+ .text.graphics_context_set_text_color
+                0x000036d4        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036d4                graphics_context_set_text_color
+ .text.window_set_background_color
+                0x000036e0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036e0                window_set_background_color
+ .text.gbitmap_get_bounds
+                0x000036ec        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036ec                gbitmap_get_bounds
+ .text.graphics_context_set_stroke_width
+                0x000036f8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000036f8                graphics_context_set_stroke_width
+ .text.text_layer_create
+                0x00003704        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003704                text_layer_create
+ .text.text_layer_destroy
+                0x00003710        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003710                text_layer_destroy
+ .text.text_layer_get_layer
+                0x0000371c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000371c                text_layer_get_layer
+ .text.text_layer_set_background_color
+                0x00003728        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003728                text_layer_set_background_color
+ .text.text_layer_set_font
+                0x00003734        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003734                text_layer_set_font
+ .text.text_layer_set_text
+                0x00003740        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003740                text_layer_set_text
+ .text.text_layer_set_text_alignment
+                0x0000374c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000374c                text_layer_set_text_alignment
+ .text.text_layer_set_text_color
+                0x00003758        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003758                text_layer_set_text_color
+ .text.dictation_session_create
+                0x00003764        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003764                dictation_session_create
+ .text.dictation_session_destroy
+                0x00003770        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003770                dictation_session_destroy
+ .text.dictation_session_start
+                0x0000377c        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x0000377c                dictation_session_start
+ .text.health_service_sum_today
+                0x00003788        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003788                health_service_sum_today
+ .text.health_service_peek_current_value
+                0x00003794        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x00003794                health_service_peek_current_value
  .text.health_service_set_heart_rate_sample_period
-                0x000035d8        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
-                0x000035d8                health_service_set_heart_rate_sample_period
+                0x000037a0        0xc /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+                0x000037a0                health_service_set_heart_rate_sample_period
  .text.__udivmoddi4
-                0x000035e4      0x2f4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
-                0x000035e4                __udivmoddi4
+                0x000037ac      0x2f4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
+                0x000037ac                __udivmoddi4
  *(.rodata)
  *(.rodata*)
  .rodata.fmt_dur.str1.1
-                0x000038d8      0x3b4 src/c/format.c.25.o
+                0x00003aa0      0x3d1 src/c/format.c.25.o
                                  0x15 (size before relaxing)
  .rodata.fmt_dist.str1.1
-                0x00003c8c        0x8 src/c/format.c.25.o
+                0x00003e71        0x8 src/c/format.c.25.o
  .rodata.fmt_pace.str1.1
-                0x00003c8c        0x6 src/c/format.c.25.o
+                0x00003e71        0x6 src/c/format.c.25.o
  .rodata.fmt_speed.str1.1
-                0x00003c8c        0x9 src/c/format.c.25.o
+                0x00003e71        0x9 src/c/format.c.25.o
  .rodata.prv_update_time.str1.1
-                0x00003c8c       0x17 src/c/main.c.25.o
+                0x00003e71       0x17 src/c/main.c.25.o
  .rodata.prv_update_steps.str1.1
-                0x00003c8c        0x3 src/c/main.c.25.o
+                0x00003e71        0x3 src/c/main.c.25.o
  .rodata.prv_update_acc.str1.1
-                0x00003c8c        0xd src/c/main.c.25.o
+                0x00003e71        0xd src/c/main.c.25.o
  .rodata.prv_update_hr.str1.1
-                0x00003c8c        0x3 src/c/main.c.25.o
+                0x00003e71        0x3 src/c/main.c.25.o
  .rodata.prv_update_caps.str1.1
-                0x00003c8c       0x29 src/c/main.c.25.o
+                0x00003e71       0x29 src/c/main.c.25.o
  .rodata.prv_set_state_text.str1.1
-                0x00003c8c       0x1d src/c/main.c.25.o
+                0x00003e71       0x1d src/c/main.c.25.o
  .rodata.prv_window_load.str1.1
-                0x00003c8c       0x94 src/c/main.c.25.o
+                0x00003e71       0x94 src/c/main.c.25.o
  .rodata.prv_back_click.str1.1
-                0x00003c8c       0x10 src/c/main.c.25.o
+                0x00003e71       0x10 src/c/main.c.25.o
  .rodata.prv_inbox.str1.1
-                0x00003c8c        0xc src/c/main.c.25.o
+                0x00003e71        0xc src/c/main.c.25.o
  .rodata.main_workout_discarded.str1.1
-                0x00003c8c        0xa src/c/main.c.25.o
+                0x00003e71        0xa src/c/main.c.25.o
  .rodata.phone_config_open.str1.1
-                0x00003c8c        0xb src/c/main.c.25.o
+                0x00003e71        0xb src/c/main.c.25.o
  .rodata.prv_down_click.str1.1
-                0x00003c8c        0xc src/c/main.c.25.o
+                0x00003e71        0xc src/c/main.c.25.o
  .rodata.prv_fill_subtitles.str1.1
-                0x00003c8c       0x4d src/c/settings.c.25.o
+                0x00003e71       0x4d src/c/settings.c.25.o
  .rodata.prv_load.str1.1
-                0x00003c8c       0x43 src/c/settings.c.25.o
+                0x00003e71       0x4e src/c/settings.c.25.o
  .rodata.str1.1
-                0x00003c8c        0x9 src/c/settings.c.25.o
+                0x00003e71        0x9 src/c/settings.c.25.o
+ .rodata.prv_metric.str1.1
+                0x00003e71       0x4c src/c/summary.c.25.o
  .rodata.prv_stats_update.str1.1
-                0x00003c8c       0x9b src/c/summary.c.25.o
+                0x00003e71       0x57 src/c/summary.c.25.o
  .rodata.prv_apply_mode.str1.1
-                0x00003c8c       0x2d src/c/summary.c.25.o
+                0x00003e71       0x2d src/c/summary.c.25.o
  .rodata.prv_fill_texts.str1.1
-                0x00003c8c       0x30 src/c/summary.c.25.o
+                0x00003e71       0x3d src/c/summary.c.25.o
  .rodata.prv_show_upload.str1.1
-                0x00003c8c       0x4c src/c/summary.c.25.o
+                0x00003e71       0x4c src/c/summary.c.25.o
  .rodata.prv_load.str1.1
-                0x00003c8c       0x50 src/c/summary.c.25.o
+                0x00003e71       0x50 src/c/summary.c.25.o
  .rodata.prv_dictation_cb.str1.1
-                0x00003c8c        0x8 src/c/summary.c.25.o
+                0x00003e71        0x8 src/c/summary.c.25.o
  .rodata.prv_graph.constprop.0.str1.1
-                0x00003c8c        0x8 src/c/summary.c.25.o
+                0x00003e71        0x8 src/c/summary.c.25.o
  .rodata.prv_graphs_update.str1.1
-                0x00003c8c       0x31 src/c/summary.c.25.o
+                0x00003e71       0x31 src/c/summary.c.25.o
  .rodata.prv_track_update.str1.1
-                0x00003c8c       0x3a src/c/summary.c.25.o
+                0x00003e71       0x3a src/c/summary.c.25.o
 
-.glue_7         0x00003c8c        0x0
- .glue_7        0x00003c8c        0x0 linker stubs
+.glue_7         0x00003e74        0x0
+ .glue_7        0x00003e74        0x0 linker stubs
 
-.glue_7t        0x00003c8c        0x0
- .glue_7t       0x00003c8c        0x0 linker stubs
+.glue_7t        0x00003e74        0x0
+ .glue_7t       0x00003e74        0x0 linker stubs
 
-.vfp11_veneer   0x00003c8c        0x0
- .vfp11_veneer  0x00003c8c        0x0 linker stubs
+.vfp11_veneer   0x00003e74        0x0
+ .vfp11_veneer  0x00003e74        0x0 linker stubs
 
-.v4_bx          0x00003c8c        0x0
- .v4_bx         0x00003c8c        0x0 linker stubs
+.v4_bx          0x00003e74        0x0
+ .v4_bx         0x00003e74        0x0 linker stubs
 
-.init           0x00003c8c        0x4
- .init          0x00003c8c        0x4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
-                0x00003c8c                _init
+.init           0x00003e74        0x4
+ .init          0x00003e74        0x4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
+                0x00003e74                _init
 
-.fini           0x00003c90        0x4
- .fini          0x00003c90        0x4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
-                0x00003c90                _fini
+.fini           0x00003e78        0x4
+ .fini          0x00003e78        0x4 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
+                0x00003e78                _fini
 
-.iplt           0x00003c94        0x0
- .iplt          0x00003c94        0x0 src/c/format.c.25.o
+.iplt           0x00003e7c        0x0
+ .iplt          0x00003e7c        0x0 src/c/format.c.25.o
 
-.rel.dyn        0x00003c94        0x0
- .rel.iplt      0x00003c94        0x0 src/c/format.c.25.o
- .rel.got       0x00003c94        0x0 src/c/format.c.25.o
+.rel.dyn        0x00003e7c        0x0
+ .rel.iplt      0x00003e7c        0x0 src/c/format.c.25.o
+ .rel.got       0x00003e7c        0x0 src/c/format.c.25.o
 
 .ARM.exidx.text.__udivmoddi4
-                0x00003c94        0x8
+                0x00003e7c        0x8
  .ARM.exidx.text.__udivmoddi4
-                0x00003c94        0x8 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
+                0x00003e7c        0x8 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
 
-.data           0x00003c9c       0x90
+.data           0x00003e84       0xa0
  *(.data)
- .data          0x00003c9c        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
- .data          0x00003c9c        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtbegin.o
- .data          0x00003c9c        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/crt0.o
- .data          0x00003c9c        0x0 src/c/format.c.25.o
- .data          0x00003c9c        0x0 src/c/hintbar.c.25.o
- .data          0x00003c9c        0x0 src/c/main.c.25.o
- .data          0x00003c9c        0xc src/c/settings.c.25.o
- .data          0x00003ca8        0x0 src/c/summary.c.25.o
- .data          0x00003ca8        0x0 basalt/appinfo.auto.c.25.o
- .data          0x00003ca8        0x0 basalt/src/resource_ids.auto.c.25.o
- .data          0x00003ca8        0x0 src/message_keys.auto.c.25.o
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_aeabi_ldivmod.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_dvmd_tls.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-atexit.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-exit.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-findfp.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fwalk.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-stdio.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-closer.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-reent.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-impure.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-lseekr.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-readr.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-writer.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-init.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fini.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-lock.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-__atexit.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-__call_atexit.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-freer.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-mallocr.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-mlock.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fclose.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fflush.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-sbrkr.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-sysconf.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-errno.o)
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtend.o
- .data          0x00003ca8        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtn.o
+ .data          0x00003e84        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crti.o
+ .data          0x00003e84        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtbegin.o
+ .data          0x00003e84        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/crt0.o
+ .data          0x00003e84        0x0 src/c/format.c.25.o
+ .data          0x00003e84        0x0 src/c/hintbar.c.25.o
+ .data          0x00003e84        0x0 src/c/main.c.25.o
+ .data          0x00003e84        0xc src/c/settings.c.25.o
+ .data          0x00003e90        0x0 src/c/summary.c.25.o
+ .data          0x00003e90        0x0 basalt/appinfo.auto.c.25.o
+ .data          0x00003e90        0x0 basalt/src/resource_ids.auto.c.25.o
+ .data          0x00003e90        0x0 src/message_keys.auto.c.25.o
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/current/sdk-core/pebble/basalt/lib/libpebble.a(tmpFRPTsFpebble.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_udivmoddi4.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/libgcc.a(_dvmd_tls.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-atexit.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-exit.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-findfp.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fwalk.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-stdio.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-closer.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-reent.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-impure.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-lseekr.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-readr.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-writer.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-init.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fini.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-lock.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-__atexit.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-__call_atexit.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-freer.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-mallocr.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-mlock.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fclose.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-fflush.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-sbrkr.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-sysconf.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-errno.o)
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtend.o
+ .data          0x00003e90        0x0 /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtn.o
  *(.data.*)
- .data.s_acc_m  0x00003ca8        0x4 src/c/main.c.25.o
+ .data.s_acc_m  0x00003e90        0x4 src/c/main.c.25.o
  .data.s_tick_unit
-                0x00003cac        0x4 src/c/main.c.25.o
- .data.g_set    0x00003cb0        0xc src/c/main.c.25.o
-                0x00003cb0                g_set
- .data.s_big    0x00003cbc        0x1 src/c/summary.c.25.o
- *fill*         0x00003cbd        0x3 
+                0x00003e94        0x4 src/c/main.c.25.o
+ .data.g_set    0x00003e98       0x10 src/c/main.c.25.o
+                0x00003e98                g_set
+ .data.s_big    0x00003ea8        0x1 src/c/summary.c.25.o
+ *fill*         0x00003ea9        0x3 
  .data.s_upload_state
-                0x00003cc0        0x4 src/c/summary.c.25.o
+                0x00003eac        0x4 src/c/summary.c.25.o
+ .data.MESSAGE_KEY_VO2
+                0x00003eb0        0x4 src/message_keys.auto.c.25.o
+                0x00003eb0                MESSAGE_KEY_VO2
  .data.MESSAGE_KEY_UNITS
-                0x00003cc4        0x4 src/message_keys.auto.c.25.o
-                0x00003cc4                MESSAGE_KEY_UNITS
+                0x00003eb4        0x4 src/message_keys.auto.c.25.o
+                0x00003eb4                MESSAGE_KEY_UNITS
  .data.MESSAGE_KEY_TSPAN
-                0x00003cc8        0x4 src/message_keys.auto.c.25.o
-                0x00003cc8                MESSAGE_KEY_TSPAN
+                0x00003eb8        0x4 src/message_keys.auto.c.25.o
+                0x00003eb8                MESSAGE_KEY_TSPAN
  .data.MESSAGE_KEY_TRACK
-                0x00003ccc        0x4 src/message_keys.auto.c.25.o
-                0x00003ccc                MESSAGE_KEY_TRACK
+                0x00003ebc        0x4 src/message_keys.auto.c.25.o
+                0x00003ebc                MESSAGE_KEY_TRACK
  .data.MESSAGE_KEY_STEPS
-                0x00003cd0        0x4 src/message_keys.auto.c.25.o
-                0x00003cd0                MESSAGE_KEY_STEPS
+                0x00003ec0        0x4 src/message_keys.auto.c.25.o
+                0x00003ec0                MESSAGE_KEY_STEPS
  .data.MESSAGE_KEY_SPLITP
-                0x00003cd4        0x4 src/message_keys.auto.c.25.o
-                0x00003cd4                MESSAGE_KEY_SPLITP
+                0x00003ec4        0x4 src/message_keys.auto.c.25.o
+                0x00003ec4                MESSAGE_KEY_SPLITP
  .data.MESSAGE_KEY_SPLIT
-                0x00003cd8        0x4 src/message_keys.auto.c.25.o
-                0x00003cd8                MESSAGE_KEY_SPLIT
+                0x00003ec8        0x4 src/message_keys.auto.c.25.o
+                0x00003ec8                MESSAGE_KEY_SPLIT
  .data.MESSAGE_KEY_SAVED
-                0x00003cdc        0x4 src/message_keys.auto.c.25.o
-                0x00003cdc                MESSAGE_KEY_SAVED
+                0x00003ecc        0x4 src/message_keys.auto.c.25.o
+                0x00003ecc                MESSAGE_KEY_SAVED
+ .data.MESSAGE_KEY_RHR
+                0x00003ed0        0x4 src/message_keys.auto.c.25.o
+                0x00003ed0                MESSAGE_KEY_RHR
  .data.MESSAGE_KEY_RENAME
-                0x00003ce0        0x4 src/message_keys.auto.c.25.o
-                0x00003ce0                MESSAGE_KEY_RENAME
+                0x00003ed4        0x4 src/message_keys.auto.c.25.o
+                0x00003ed4                MESSAGE_KEY_RENAME
  .data.MESSAGE_KEY_PACEG
-                0x00003ce4        0x4 src/message_keys.auto.c.25.o
-                0x00003ce4                MESSAGE_KEY_PACEG
+                0x00003ed8        0x4 src/message_keys.auto.c.25.o
+                0x00003ed8                MESSAGE_KEY_PACEG
  .data.MESSAGE_KEY_PACE
-                0x00003ce8        0x4 src/message_keys.auto.c.25.o
-                0x00003ce8                MESSAGE_KEY_PACE
+                0x00003edc        0x4 src/message_keys.auto.c.25.o
+                0x00003edc                MESSAGE_KEY_PACE
  .data.MESSAGE_KEY_MOVS
-                0x00003cec        0x4 src/message_keys.auto.c.25.o
-                0x00003cec                MESSAGE_KEY_MOVS
+                0x00003ee0        0x4 src/message_keys.auto.c.25.o
+                0x00003ee0                MESSAGE_KEY_MOVS
  .data.MESSAGE_KEY_MODE
-                0x00003cf0        0x4 src/message_keys.auto.c.25.o
-                0x00003cf0                MESSAGE_KEY_MODE
+                0x00003ee4        0x4 src/message_keys.auto.c.25.o
+                0x00003ee4                MESSAGE_KEY_MODE
+ .data.MESSAGE_KEY_MHR
+                0x00003ee8        0x4 src/message_keys.auto.c.25.o
+                0x00003ee8                MESSAGE_KEY_MHR
  .data.MESSAGE_KEY_MAXHR
-                0x00003cf4        0x4 src/message_keys.auto.c.25.o
-                0x00003cf4                MESSAGE_KEY_MAXHR
+                0x00003eec        0x4 src/message_keys.auto.c.25.o
+                0x00003eec                MESSAGE_KEY_MAXHR
  .data.MESSAGE_KEY_HRG
-                0x00003cf8        0x4 src/message_keys.auto.c.25.o
-                0x00003cf8                MESSAGE_KEY_HRG
+                0x00003ef0        0x4 src/message_keys.auto.c.25.o
+                0x00003ef0                MESSAGE_KEY_HRG
  .data.MESSAGE_KEY_HR
-                0x00003cfc        0x4 src/message_keys.auto.c.25.o
-                0x00003cfc                MESSAGE_KEY_HR
+                0x00003ef4        0x4 src/message_keys.auto.c.25.o
+                0x00003ef4                MESSAGE_KEY_HR
  .data.MESSAGE_KEY_GPSOK
-                0x00003d00        0x4 src/message_keys.auto.c.25.o
-                0x00003d00                MESSAGE_KEY_GPSOK
+                0x00003ef8        0x4 src/message_keys.auto.c.25.o
+                0x00003ef8                MESSAGE_KEY_GPSOK
  .data.MESSAGE_KEY_EXPST
-                0x00003d04        0x4 src/message_keys.auto.c.25.o
-                0x00003d04                MESSAGE_KEY_EXPST
+                0x00003efc        0x4 src/message_keys.auto.c.25.o
+                0x00003efc                MESSAGE_KEY_EXPST
  .data.MESSAGE_KEY_EXPERR
-                0x00003d08        0x4 src/message_keys.auto.c.25.o
-                0x00003d08                MESSAGE_KEY_EXPERR
+                0x00003f00        0x4 src/message_keys.auto.c.25.o
+                0x00003f00                MESSAGE_KEY_EXPERR
  .data.MESSAGE_KEY_EGAIN
-                0x00003d0c        0x4 src/message_keys.auto.c.25.o
-                0x00003d0c                MESSAGE_KEY_EGAIN
+                0x00003f04        0x4 src/message_keys.auto.c.25.o
+                0x00003f04                MESSAGE_KEY_EGAIN
  .data.MESSAGE_KEY_DIST
-                0x00003d10        0x4 src/message_keys.auto.c.25.o
-                0x00003d10                MESSAGE_KEY_DIST
+                0x00003f08        0x4 src/message_keys.auto.c.25.o
+                0x00003f08                MESSAGE_KEY_DIST
  .data.MESSAGE_KEY_CMD
-                0x00003d14        0x4 src/message_keys.auto.c.25.o
-                0x00003d14                MESSAGE_KEY_CMD
+                0x00003f0c        0x4 src/message_keys.auto.c.25.o
+                0x00003f0c                MESSAGE_KEY_CMD
  .data.MESSAGE_KEY_AVGP
-                0x00003d18        0x4 src/message_keys.auto.c.25.o
-                0x00003d18                MESSAGE_KEY_AVGP
+                0x00003f10        0x4 src/message_keys.auto.c.25.o
+                0x00003f10                MESSAGE_KEY_AVGP
  .data.MESSAGE_KEY_AVGHR
-                0x00003d1c        0x4 src/message_keys.auto.c.25.o
-                0x00003d1c                MESSAGE_KEY_AVGHR
+                0x00003f14        0x4 src/message_keys.auto.c.25.o
+                0x00003f14                MESSAGE_KEY_AVGHR
  .data.MESSAGE_KEY_AUTOP
-                0x00003d20        0x4 src/message_keys.auto.c.25.o
-                0x00003d20                MESSAGE_KEY_AUTOP
+                0x00003f18        0x4 src/message_keys.auto.c.25.o
+                0x00003f18                MESSAGE_KEY_AUTOP
  .data.MESSAGE_KEY_APAUSE
-                0x00003d24        0x4 src/message_keys.auto.c.25.o
-                0x00003d24                MESSAGE_KEY_APAUSE
+                0x00003f1c        0x4 src/message_keys.auto.c.25.o
+                0x00003f1c                MESSAGE_KEY_APAUSE
  .data.MESSAGE_KEY_ACC
-                0x00003d28        0x4 src/message_keys.auto.c.25.o
-                0x00003d28                MESSAGE_KEY_ACC
+                0x00003f20        0x4 src/message_keys.auto.c.25.o
+                0x00003f20                MESSAGE_KEY_ACC
 
-.igot.plt       0x00003d2c        0x0
- .igot.plt      0x00003d2c        0x0 src/c/format.c.25.o
+.igot.plt       0x00003f24        0x0
+ .igot.plt      0x00003f24        0x0 src/c/format.c.25.o
 
-.got            0x00003d2c       0x70
- .got           0x00003d2c       0x70 src/c/format.c.25.o
+.got            0x00003f24       0x7c
+ .got           0x00003f24       0x7c src/c/format.c.25.o
 
-.got.plt        0x00003d9c        0xc
- .got.plt       0x00003d9c        0xc src/c/format.c.25.o
-                0x00003d9c                _GLOBAL_OFFSET_TABLE_
+.got.plt        0x00003fa0        0xc
+ .got.plt       0x00003fa0        0xc src/c/format.c.25.o
+                0x00003fa0                _GLOBAL_OFFSET_TABLE_
 
-.bss            0x00003da8      0x4a0
+.bss            0x00003fac      0x4d4
  *(.bss)
  *(.bss.*)
- .bss.s_cache   0x00003da8       0x40 src/c/hintbar.c.25.o
- .bss.cnt.0     0x00003de8        0x4 src/c/main.c.25.o
+ .bss.s_cache   0x00003fac       0x40 src/c/hintbar.c.25.o
+ .bss.cnt.0     0x00003fec        0x4 src/c/main.c.25.o
  .bss.s_clock_buf
-                0x00003dec        0xc src/c/main.c.25.o
+                0x00003ff0        0xc src/c/main.c.25.o
  .bss.s_clock_layer
-                0x00003df8        0x4 src/c/main.c.25.o
+                0x00003ffc        0x4 src/c/main.c.25.o
  .bss.s_hr_cell
-                0x00003dfc        0x8 src/c/main.c.25.o
+                0x00004000        0x8 src/c/main.c.25.o
  .bss.s_content_w
-                0x00003e04        0x4 src/c/main.c.25.o
+                0x00004008        0x4 src/c/main.c.25.o
  .bss.s_actionbar
-                0x00003e08        0x4 src/c/main.c.25.o
- .bss.s_col_x   0x00003e0c        0x4 src/c/main.c.25.o
+                0x0000400c        0x4 src/c/main.c.25.o
+ .bss.s_col_x   0x00004010        0x4 src/c/main.c.25.o
  .bss.s_grid_bot
-                0x00003e10        0x4 src/c/main.c.25.o
+                0x00004014        0x4 src/c/main.c.25.o
  .bss.s_grid_mid
-                0x00003e14        0x4 src/c/main.c.25.o
+                0x00004018        0x4 src/c/main.c.25.o
  .bss.s_grid_top
-                0x00003e18        0x4 src/c/main.c.25.o
+                0x0000401c        0x4 src/c/main.c.25.o
  .bss.s_acc_layer
-                0x00003e1c        0x4 src/c/main.c.25.o
+                0x00004020        0x4 src/c/main.c.25.o
  .bss.s_acc_buf
-                0x00003e20        0xe src/c/main.c.25.o
+                0x00004024        0xe src/c/main.c.25.o
  .bss.s_flash_buf
-                0x00003e2e       0x14 src/c/main.c.25.o
+                0x00004032       0x14 src/c/main.c.25.o
  .bss.s_steps_buf
-                0x00003e42        0x8 src/c/main.c.25.o
- .bss.s_hr_buf  0x00003e4a        0xc src/c/main.c.25.o
+                0x00004046        0x8 src/c/main.c.25.o
+ .bss.s_hr_buf  0x0000404e        0xc src/c/main.c.25.o
  .bss.s_pace_buf
-                0x00003e56        0xc src/c/main.c.25.o
+                0x0000405a        0xc src/c/main.c.25.o
  .bss.s_dist_buf
-                0x00003e62        0xc src/c/main.c.25.o
+                0x00004066        0xc src/c/main.c.25.o
  .bss.s_time_buf
-                0x00003e6e       0x10 src/c/main.c.25.o
+                0x00004072       0x10 src/c/main.c.25.o
  .bss.s_have_step_base
-                0x00003e7e        0x1 src/c/main.c.25.o
- *fill*         0x00003e7f        0x1 
+                0x00004082        0x1 src/c/main.c.25.o
+ *fill*         0x00004083        0x1 
  .bss.s_steps_at_start
-                0x00003e80        0x4 src/c/main.c.25.o
- .bss.s_steps   0x00003e84        0x4 src/c/main.c.25.o
- .bss.s_pace_s  0x00003e88        0x4 src/c/main.c.25.o
- .bss.s_dist_m  0x00003e8c        0x4 src/c/main.c.25.o
+                0x00004084        0x4 src/c/main.c.25.o
+ .bss.s_steps   0x00004088        0x4 src/c/main.c.25.o
+ .bss.s_pace_s  0x0000408c        0x4 src/c/main.c.25.o
+ .bss.s_dist_m  0x00004090        0x4 src/c/main.c.25.o
  .bss.s_hr_ring_i
-                0x00003e90        0x4 src/c/main.c.25.o
+                0x00004094        0x4 src/c/main.c.25.o
  .bss.s_hr_ring_n
-                0x00003e94        0x4 src/c/main.c.25.o
+                0x00004098        0x4 src/c/main.c.25.o
  .bss.s_hr_ring
-                0x00003e98       0x14 src/c/main.c.25.o
- .bss.s_hr      0x00003eac        0x4 src/c/main.c.25.o
+                0x0000409c       0x14 src/c/main.c.25.o
+ .bss.s_hr      0x000040b0        0x4 src/c/main.c.25.o
  .bss.s_elapsed_s
-                0x00003eb0        0x4 src/c/main.c.25.o
- .bss.s_gps_ok  0x00003eb4        0x1 src/c/main.c.25.o
+                0x000040b4        0x4 src/c/main.c.25.o
+ .bss.s_gps_ok  0x000040b8        0x1 src/c/main.c.25.o
  .bss.s_autopaused
-                0x00003eb5        0x1 src/c/main.c.25.o
- .bss.s_state   0x00003eb6        0x1 src/c/main.c.25.o
- *fill*         0x00003eb7        0x1 
+                0x000040b9        0x1 src/c/main.c.25.o
+ .bss.s_state   0x000040ba        0x1 src/c/main.c.25.o
+ *fill*         0x000040bb        0x1 
  .bss.s_flash_timer
-                0x00003eb8        0x4 src/c/main.c.25.o
+                0x000040bc        0x4 src/c/main.c.25.o
  .bss.s_steps_layer
-                0x00003ebc        0x4 src/c/main.c.25.o
+                0x000040c0        0x4 src/c/main.c.25.o
  .bss.s_steps_cap
-                0x00003ec0        0x4 src/c/main.c.25.o
+                0x000040c4        0x4 src/c/main.c.25.o
  .bss.s_hr_layer
-                0x00003ec4        0x4 src/c/main.c.25.o
- .bss.s_hr_cap  0x00003ec8        0x4 src/c/main.c.25.o
+                0x000040c8        0x4 src/c/main.c.25.o
+ .bss.s_hr_cap  0x000040cc        0x4 src/c/main.c.25.o
  .bss.s_pace_layer
-                0x00003ecc        0x4 src/c/main.c.25.o
+                0x000040d0        0x4 src/c/main.c.25.o
  .bss.s_pace_cap
-                0x00003ed0        0x4 src/c/main.c.25.o
+                0x000040d4        0x4 src/c/main.c.25.o
  .bss.s_dist_layer
-                0x00003ed4        0x4 src/c/main.c.25.o
+                0x000040d8        0x4 src/c/main.c.25.o
  .bss.s_dist_cap
-                0x00003ed8        0x4 src/c/main.c.25.o
+                0x000040dc        0x4 src/c/main.c.25.o
  .bss.s_time_layer
-                0x00003edc        0x4 src/c/main.c.25.o
+                0x000040e0        0x4 src/c/main.c.25.o
  .bss.s_state_layer
-                0x00003ee0        0x4 src/c/main.c.25.o
+                0x000040e4        0x4 src/c/main.c.25.o
  .bss.s_chrome_layer
-                0x00003ee4        0x4 src/c/main.c.25.o
- .bss.s_window  0x00003ee8        0x4 src/c/main.c.25.o
+                0x000040e8        0x4 src/c/main.c.25.o
+ .bss.s_window  0x000040ec        0x4 src/c/main.c.25.o
  .bss.s_sections
-                0x00003eec        0xc src/c/settings.c.25.o
- .bss.s_items   0x00003ef8       0x60 src/c/settings.c.25.o
+                0x000040f0        0xc src/c/settings.c.25.o
+ .bss.s_items   0x000040fc       0x70 src/c/settings.c.25.o
  .bss.s_sub_export
-                0x00003f58       0x10 src/c/settings.c.25.o
+                0x0000416c       0x10 src/c/settings.c.25.o
+ .bss.s_sub_resthr
+                0x0000417c        0xc src/c/settings.c.25.o
  .bss.s_sub_maxhr
-                0x00003f68        0xc src/c/settings.c.25.o
+                0x00004188        0xc src/c/settings.c.25.o
  .bss.s_sub_splits
-                0x00003f74       0x10 src/c/settings.c.25.o
+                0x00004194       0x10 src/c/settings.c.25.o
  .bss.s_sub_autop
-                0x00003f84        0x8 src/c/settings.c.25.o
+                0x000041a4        0x8 src/c/settings.c.25.o
  .bss.s_sub_units
-                0x00003f8c       0x10 src/c/settings.c.25.o
+                0x000041ac       0x10 src/c/settings.c.25.o
  .bss.s_sub_mode
-                0x00003f9c        0x8 src/c/settings.c.25.o
- .bss.s_menu    0x00003fa4        0x4 src/c/settings.c.25.o
- .bss.s_win     0x00003fa8        0x4 src/c/settings.c.25.o
+                0x000041bc        0x8 src/c/settings.c.25.o
+ .bss.s_menu    0x000041c4        0x4 src/c/settings.c.25.o
+ .bss.s_win     0x000041c8        0x4 src/c/settings.c.25.o
  .bss.s_dictation
-                0x00003fac        0x4 src/c/summary.c.25.o
+                0x000041cc        0x4 src/c/summary.c.25.o
  .bss.s_upload_err
-                0x00003fb0        0x4 src/c/summary.c.25.o
- .bss.s_hr_rng  0x00003fb4       0x10 src/c/summary.c.25.o
+                0x000041d0        0x4 src/c/summary.c.25.o
+ .bss.s_hr_rng  0x000041d4       0x10 src/c/summary.c.25.o
  .bss.s_pace_rng
-                0x00003fc4       0x18 src/c/summary.c.25.o
- .bss.s_v       0x00003fdc       0x60 src/c/summary.c.25.o
+                0x000041e4       0x18 src/c/summary.c.25.o
+ .bss.s_vo2_buf
+                0x000041fc       0x14 src/c/summary.c.25.o
+ .bss.s_v       0x00004210       0x60 src/c/summary.c.25.o
  .bss.s_upload_buf
-                0x0000403c       0x1a src/c/summary.c.25.o
+                0x00004270       0x1a src/c/summary.c.25.o
  .bss.s_dist_buf
-                0x00004056       0x14 src/c/summary.c.25.o
- *fill*         0x0000406a        0x2 
- .bss.s_scr_h   0x0000406c        0x4 src/c/summary.c.25.o
+                0x0000428a       0x14 src/c/summary.c.25.o
+ *fill*         0x0000429e        0x2 
+ .bss.s_scr_h   0x000042a0        0x4 src/c/summary.c.25.o
  .bss.s_content_h
-                0x00004070        0x4 src/c/summary.c.25.o
- .bss.s_off     0x00004074        0x4 src/c/summary.c.25.o
- .bss.s_menu    0x00004078        0x4 src/c/summary.c.25.o
- .bss.s_banner  0x0000407c        0x4 src/c/summary.c.25.o
- .bss.s_hint    0x00004080        0x4 src/c/summary.c.25.o
- .bss.s_upload  0x00004084        0x4 src/c/summary.c.25.o
- .bss.s_dist    0x00004088        0x4 src/c/summary.c.25.o
- .bss.s_title   0x0000408c        0x4 src/c/summary.c.25.o
- .bss.s_bar     0x00004090        0x4 src/c/summary.c.25.o
+                0x000042a4        0x4 src/c/summary.c.25.o
+ .bss.s_off     0x000042a8        0x4 src/c/summary.c.25.o
+ .bss.s_menu    0x000042ac        0x4 src/c/summary.c.25.o
+ .bss.s_banner  0x000042b0        0x4 src/c/summary.c.25.o
+ .bss.s_hint    0x000042b4        0x4 src/c/summary.c.25.o
+ .bss.s_upload  0x000042b8        0x4 src/c/summary.c.25.o
+ .bss.s_dist    0x000042bc        0x4 src/c/summary.c.25.o
+ .bss.s_title   0x000042c0        0x4 src/c/summary.c.25.o
+ .bss.s_bar     0x000042c4        0x4 src/c/summary.c.25.o
  .bss.s_stats_layer
-                0x00004094        0x4 src/c/summary.c.25.o
+                0x000042c8        0x4 src/c/summary.c.25.o
  .bss.s_graphs_layer
-                0x00004098        0x4 src/c/summary.c.25.o
+                0x000042cc        0x4 src/c/summary.c.25.o
  .bss.s_track_layer
-                0x0000409c        0x4 src/c/summary.c.25.o
- .bss.s_scroll  0x000040a0        0x4 src/c/summary.c.25.o
- .bss.s_win     0x000040a4        0x4 src/c/summary.c.25.o
- COMMON         0x000040a8      0x1a0 src/c/main.c.25.o
-                0x000040a8                g_stats
+                0x000042d0        0x4 src/c/summary.c.25.o
+ .bss.s_scroll  0x000042d4        0x4 src/c/summary.c.25.o
+ .bss.s_win     0x000042d8        0x4 src/c/summary.c.25.o
+ COMMON         0x000042dc      0x1a4 src/c/main.c.25.o
+                0x000042dc                g_stats
 
 DISCARD
  libc.a(*)
@@ -2363,40 +2380,40 @@ LOAD /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../
  .comment       0x00000039       0x3a /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a(libc_a-errno.o)
  .comment       0x00000039       0x3a /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../lib/gcc/arm-none-eabi/14.2.1/thumb/v7-m/nofp/crtend.o
 
-.debug_info     0x00000000     0x764c
- .debug_info    0x00000000      0x485 src/c/format.c.25.o
- .debug_info    0x00000485      0xa34 src/c/hintbar.c.25.o
- .debug_info    0x00000eb9     0x301f src/c/main.c.25.o
- .debug_info    0x00003ed8      0x7d1 src/c/settings.c.25.o
- .debug_info    0x000046a9     0x28cb src/c/summary.c.25.o
- .debug_info    0x00006f74      0x33e basalt/appinfo.auto.c.25.o
- .debug_info    0x000072b2      0x17d basalt/src/resource_ids.auto.c.25.o
- .debug_info    0x0000742f      0x21d src/message_keys.auto.c.25.o
+.debug_info     0x00000000     0x77ea
+ .debug_info    0x00000000      0x490 src/c/format.c.25.o
+ .debug_info    0x00000490      0xa34 src/c/hintbar.c.25.o
+ .debug_info    0x00000ec4     0x30bc src/c/main.c.25.o
+ .debug_info    0x00003f80      0x815 src/c/settings.c.25.o
+ .debug_info    0x00004795     0x294d src/c/summary.c.25.o
+ .debug_info    0x000070e2      0x33e basalt/appinfo.auto.c.25.o
+ .debug_info    0x00007420      0x17d basalt/src/resource_ids.auto.c.25.o
+ .debug_info    0x0000759d      0x24d src/message_keys.auto.c.25.o
 
-.debug_abbrev   0x00000000     0x149c
+.debug_abbrev   0x00000000     0x1495
  .debug_abbrev  0x00000000      0x1ab src/c/format.c.25.o
  .debug_abbrev  0x000001ab      0x31f src/c/hintbar.c.25.o
- .debug_abbrev  0x000004ca      0x63b src/c/main.c.25.o
- .debug_abbrev  0x00000b05      0x260 src/c/settings.c.25.o
- .debug_abbrev  0x00000d65      0x5ea src/c/summary.c.25.o
- .debug_abbrev  0x0000134f       0xb9 basalt/appinfo.auto.c.25.o
- .debug_abbrev  0x00001408       0x4a basalt/src/resource_ids.auto.c.25.o
- .debug_abbrev  0x00001452       0x4a src/message_keys.auto.c.25.o
+ .debug_abbrev  0x000004ca      0x646 src/c/main.c.25.o
+ .debug_abbrev  0x00000b10      0x260 src/c/settings.c.25.o
+ .debug_abbrev  0x00000d70      0x5d8 src/c/summary.c.25.o
+ .debug_abbrev  0x00001348       0xb9 basalt/appinfo.auto.c.25.o
+ .debug_abbrev  0x00001401       0x4a basalt/src/resource_ids.auto.c.25.o
+ .debug_abbrev  0x0000144b       0x4a src/message_keys.auto.c.25.o
 
 .debug_loclists
-                0x00000000     0x248c
+                0x00000000     0x2524
  .debug_loclists
                 0x00000000      0x3f7 src/c/format.c.25.o
  .debug_loclists
                 0x000003f7      0x4cb src/c/hintbar.c.25.o
  .debug_loclists
-                0x000008c2      0xc64 src/c/main.c.25.o
+                0x000008c2      0xc76 src/c/main.c.25.o
  .debug_loclists
-                0x00001526       0xca src/c/settings.c.25.o
+                0x00001538       0xca src/c/settings.c.25.o
  .debug_loclists
-                0x000015f0      0xe9c src/c/summary.c.25.o
+                0x00001602      0xf22 src/c/summary.c.25.o
 
-.debug_aranges  0x00000000      0x310
+.debug_aranges  0x00000000      0x318
  .debug_aranges
                 0x00000000       0x58 src/c/format.c.25.o
  .debug_aranges
@@ -2406,51 +2423,51 @@ LOAD /home/kai/.local/share/pebble-sdk/SDKs/4.17/toolchain/arm-none-eabi/bin/../
  .debug_aranges
                 0x000001c8       0x40 src/c/settings.c.25.o
  .debug_aranges
-                0x00000208       0xc0 src/c/summary.c.25.o
+                0x00000208       0xc8 src/c/summary.c.25.o
  .debug_aranges
-                0x000002c8       0x18 basalt/appinfo.auto.c.25.o
+                0x000002d0       0x18 basalt/appinfo.auto.c.25.o
  .debug_aranges
-                0x000002e0       0x18 basalt/src/resource_ids.auto.c.25.o
+                0x000002e8       0x18 basalt/src/resource_ids.auto.c.25.o
  .debug_aranges
-                0x000002f8       0x18 src/message_keys.auto.c.25.o
+                0x00000300       0x18 src/message_keys.auto.c.25.o
 
 .debug_rnglists
-                0x00000000      0x405
+                0x00000000      0x3cb
  .debug_rnglists
                 0x00000000       0x3d src/c/format.c.25.o
  .debug_rnglists
                 0x0000003d       0x54 src/c/hintbar.c.25.o
  .debug_rnglists
-                0x00000091      0x19f src/c/main.c.25.o
+                0x00000091      0x1a3 src/c/main.c.25.o
  .debug_rnglists
-                0x00000230       0x2e src/c/settings.c.25.o
+                0x00000234       0x2e src/c/settings.c.25.o
  .debug_rnglists
-                0x0000025e      0x1a7 src/c/summary.c.25.o
+                0x00000262      0x169 src/c/summary.c.25.o
 
-.debug_line     0x00000000     0x3be2
+.debug_line     0x00000000     0x3d60
  .debug_line    0x00000000      0x438 src/c/format.c.25.o
  .debug_line    0x00000438      0x47a src/c/hintbar.c.25.o
- .debug_line    0x000008b2     0x16fa src/c/main.c.25.o
- .debug_line    0x00001fac      0x445 src/c/settings.c.25.o
- .debug_line    0x000023f1     0x143b src/c/summary.c.25.o
- .debug_line    0x0000382c      0x17d basalt/appinfo.auto.c.25.o
- .debug_line    0x000039a9      0x120 basalt/src/resource_ids.auto.c.25.o
- .debug_line    0x00003ac9      0x119 src/message_keys.auto.c.25.o
+ .debug_line    0x000008b2     0x1762 src/c/main.c.25.o
+ .debug_line    0x00002014      0x49f src/c/settings.c.25.o
+ .debug_line    0x000024b3     0x14f7 src/c/summary.c.25.o
+ .debug_line    0x000039aa      0x17d basalt/appinfo.auto.c.25.o
+ .debug_line    0x00003b27      0x120 basalt/src/resource_ids.auto.c.25.o
+ .debug_line    0x00003c47      0x119 src/message_keys.auto.c.25.o
 
-.debug_str      0x00000000     0x24b8
- .debug_str     0x00000000     0x24b8 src/c/format.c.25.o
-                                0x26b (size before relaxing)
- .debug_str     0x000024b8      0x5ab src/c/hintbar.c.25.o
- .debug_str     0x000024b8     0x1774 src/c/main.c.25.o
- .debug_str     0x000024b8      0x4d7 src/c/settings.c.25.o
- .debug_str     0x000024b8      0xfe2 src/c/summary.c.25.o
- .debug_str     0x000024b8      0x4c6 basalt/appinfo.auto.c.25.o
- .debug_str     0x000024b8      0x2d9 basalt/src/resource_ids.auto.c.25.o
- .debug_str     0x000024b8      0x331 src/message_keys.auto.c.25.o
+.debug_str      0x00000000     0x250c
+ .debug_str     0x00000000     0x250c src/c/format.c.25.o
+                                0x273 (size before relaxing)
+ .debug_str     0x0000250c      0x5ab src/c/hintbar.c.25.o
+ .debug_str     0x0000250c     0x17ac src/c/main.c.25.o
+ .debug_str     0x0000250c      0x4ec src/c/settings.c.25.o
+ .debug_str     0x0000250c      0xff9 src/c/summary.c.25.o
+ .debug_str     0x0000250c      0x4c6 basalt/appinfo.auto.c.25.o
+ .debug_str     0x0000250c      0x2d9 basalt/src/resource_ids.auto.c.25.o
+ .debug_str     0x0000250c      0x361 src/message_keys.auto.c.25.o
 
-.debug_frame    0x00000000      0x9f8
+.debug_frame    0x00000000      0xa34
  .debug_frame   0x00000000       0xf0 src/c/format.c.25.o
  .debug_frame   0x000000f0      0x104 src/c/hintbar.c.25.o
  .debug_frame   0x000001f4      0x420 src/c/main.c.25.o
- .debug_frame   0x00000614       0xc8 src/c/settings.c.25.o
- .debug_frame   0x000006dc      0x31c src/c/summary.c.25.o
+ .debug_frame   0x00000614       0xcc src/c/settings.c.25.o
+ .debug_frame   0x000006e0      0x354 src/c/summary.c.25.o

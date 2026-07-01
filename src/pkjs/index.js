@@ -59,6 +59,8 @@ var C = {
   MAX_STORE_CHARS: 2200000,
   HR_STALE_MS: 15000,   // drop HR readings older than this
   CAD_STALE_MS: 15000,
+  CAD_WINDOW_MS: 15000, // per-point cadence = step rate over this trailing window (tames BLE/quantisation spikes)
+  CAD_SAMPLE_MS: 5000,  // watch's deterministic step-send cadence; window span is snapped to a multiple of this
   AP_SLOW_N: 3,         // consecutive slow fixes before auto-pause
   AP_FAST_N: 2,         // consecutive fast fixes before auto-resume
   // auto-pause speed thresholds (m/s) per activity: [run, walk, ride]
@@ -78,7 +80,7 @@ var C = {
 };
 
 /* settings mirrored from the watch (UP-button menu) */
-var WSET = { mi: false, ap: true, splits: true, mode: 0 };  // 0 run, 1 walk, 2 ride
+var WSET = { mi: false, ap: true, splits: true, mode: 0, maxHr: 190, restHr: 0 };  // 0 run,1 walk,2 ride; restHr 0=off
 
 var ST = {
   act: 0, lastT: 0, tsWarned: false, fixLogged: false,
@@ -87,7 +89,7 @@ var ST = {
   pts: [], dist: 0, movS: 0, last: null,
   prevFix: null, lastFixAt: 0, slowN: 0, fastN: 0,
   eleSm: null, eleBase: null, egain: 0,
-  hr: 0, hrAt: 0, cad: 0, cadAt: 0, lastSteps: null, steps: 0,
+  hr: 0, hrAt: 0, cad: 0, cadAt: 0, lastSteps: null, stepHist: [], steps: 0,
   startAt: 0, splitN: 0, segFlag: 0,
   watchId: null, geoWatchdog: null, sending: false, queue: [], lastStatT: 0,
   lastOk: -1, lastAccSent: -1, lastAccAt: 0,
@@ -233,7 +235,11 @@ function onFix(pos) {
     ST.movS += Math.min(dt, 10);
   }
 
-  if (fix.ele !== null) trackElevation(fix.ele);
+  // Feed raw altitude to the gain accumulator (its 3 m dead-band does the
+  // noise rejection for the stat), but STORE the smoothed value on the point:
+  // GPS vertical noise would otherwise make a flat run's exported gain balloon
+  // (this run: 107 m raw vs 23 m as displayed). Keeps every export consistent.
+  if (fix.ele !== null) { trackElevation(fix.ele); fix.ele = Math.round(ST.eleSm * 10) / 10; }
 
   fix.hr = (now() - ST.hrAt < C.HR_STALE_MS) ? ST.hr : 0;
   fix.cad = (now() - ST.cadAt < C.CAD_STALE_MS) ? ST.cad : 0;
@@ -325,7 +331,7 @@ function startRun() {
   ST.last = null; ST.startAt = now(); ST.splitN = 0; ST.segFlag = 0;
   ST.slowN = 0; ST.fastN = 0;
   ST.eleSm = null; ST.eleBase = null; ST.egain = 0;
-  ST.steps = 0; ST.lastSteps = null; ST.cad = 0;
+  ST.steps = 0; ST.lastSteps = null; ST.stepHist = []; ST.cad = 0;
   ST.act = WSET.mode;            // mode is locked for the whole activity
   ST.kf = gps.make();            // fresh GPS Kalman filter per run
   ST.lastStatT = 0;              // push the first live stats promptly
@@ -355,7 +361,7 @@ function stopRun() {
     rlog('saved "' + run.name + '" (' + Math.round(run.dist) + ' m)');
     saveRun(run);
     send({ SAVED: 1, DIST: run.dist, AVGP: run.avgp, AVGHR: run.avgHr,
-           MAXHR: run.maxHr, MOVS: run.mov, EGAIN: run.egain }, true);
+           MAXHR: run.maxHr, MOVS: run.mov, EGAIN: run.egain, VO2: run.vo2max || 0 }, true);
     sendTrack(run.pts);
     sendGraphs(run.pts);
     try { localStorage.removeItem('runlog.inprogress'); } catch (e0) {}
@@ -453,6 +459,55 @@ function nameFromTemplate(tpl, act, startMs) {
   return strftimeLite(t, d);
 }
 
+/* Estimate VO2max from a run using the documented submaximal field method,
+ * tuned for accuracy within what a GPS+HR watch can actually measure:
+ *   - the ACSM running equation gives VO2 at each steady pace (level-ground
+ *     only: Pebble exposes just noisy GPS altitude, no barometer, so a grade
+ *     term would add more error than it removes);
+ *   - the heart rate at that pace is turned into a fraction of capacity, by
+ *     heart-rate reserve / VO2 reserve (Karvonen) when a resting HR is known
+ *     -- the more accurate model -- otherwise by Swain's %HRmax relation;
+ *   - VO2 / fraction is the implied VO2max, taken as the median over points.
+ * Accuracy guards: the first two minutes are dropped (HR lags pace on warm-up,
+ * which would inflate the figure), and only metabolic steady state counts --
+ * points mid-acceleration, where HR and pace are out of step, are skipped.
+ * Running only; needs HR and the user's max HR; 0 when there isn't enough
+ * steady aerobic running to lean on. */
+function estimateVo2max(pts, act, hrMax, restHr) {
+  if (act !== 0 || !hrMax || hrMax < 120) return 0;
+  var useReserve = (restHr > 0 && restHr < hrMax - 20);  // Karvonen when resting HR is set
+  var t0 = pts.length ? pts[0][0] : 0;
+  var s = [], i, vEma = 0;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i];
+    if (b[5]) { vEma = 0; continue; }                    // pause/resume: reset steadiness ref
+    var dt = b[0] - a[0];
+    if (dt <= 0 || dt > 20) { vEma = 0; continue; }      // gap / paused stretch
+    var v = haversine({ lat: a[1], lon: a[2] }, { lat: b[1], lon: b[2] }) / dt * 60; // m/min
+    if (vEma === 0) vEma = v;
+    var steady = Math.abs(v - vEma) / vEma <= 0.22;      // close to recent pace = steady state
+    vEma = vEma + 0.30 * (v - vEma);
+    if (v < 120 || v > 400) continue;                    // running pace band (~7.2-24 km/h)
+    if (!steady) continue;                               // accel/decel: HR lags pace, skip
+    if (b[0] - t0 < 120) continue;                       // warm-up: HR not yet at steady state
+    var hr = b[4];
+    if (!hr || hr <= 0) continue;
+    var pHR = hr / hrMax * 100;
+    if (pHR < 65 || pHR > 100) continue;                 // band where the HR models hold up
+    var frac = useReserve ? (hr - restHr) / (hrMax - restHr)  // %HRR = %VO2R
+                          : (pHR - 37) / 64;                  // Swain (1994), as a fraction
+    if (frac < 0.30) continue;                           // guard tiny denominators
+    var exVO2 = 0.2 * v + 3.5;                            // ACSM level running
+    var vo2 = useReserve ? (3.5 + (exVO2 - 3.5) / frac)  // VO2 reserve model
+                         : (exVO2 / frac);
+    if (vo2 >= 20 && vo2 <= 90) s.push(vo2);
+  }
+  if (s.length < 20) return 0;                           // not enough steady aerobic running
+  s.sort(function (x, y) { return x - y; });
+  var m = Math.floor(s.length / 2);
+  return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
+}
+
 function finalizeRun(d, suffix) {
   var cpts = d.pts;
   if (!cpts || cpts.length < 2) return null;
@@ -474,6 +529,7 @@ function finalizeRun(d, suffix) {
     avgp: (mov >= 30 && dist >= 50) ? Math.round(mov / (dist / 1000)) : 0,
     avgHr: n ? Math.round(sum / n) : 0,
     maxHr: max,
+    vo2max: estimateVo2max(cpts, act, WSET.maxHr, WSET.restHr),
     egain: Math.round(d.egain || 0),
     cad: (act !== 2 && mov >= 30 && d.steps > 0)
            ? Math.min(260, Math.round(d.steps * 60 / mov)) : 0,
@@ -698,6 +754,8 @@ function loadWatchSet() {
       var c = JSON.parse(raw);
       WSET.mi = !!c.mi; WSET.ap = !!c.ap; WSET.splits = !!c.splits;
       WSET.mode = (c.mode >= 0 && c.mode <= 2) ? c.mode : 0;
+      if (c.maxHr >= 120 && c.maxHr <= 220) WSET.maxHr = c.maxHr;
+      if (c.restHr >= 0 && c.restHr <= 120) WSET.restHr = c.restHr;
     }
   } catch (e) {}
 }
@@ -951,13 +1009,27 @@ Pebble.addEventListener('appmessage', function (e) {
   if (p.AUTOP !== undefined)  { WSET.ap = !!p.AUTOP; storeWatchSet(); }
   if (p.SPLITP !== undefined) { WSET.splits = !!p.SPLITP; storeWatchSet(); }
   if (p.MODE !== undefined)   { WSET.mode = (p.MODE >= 0 && p.MODE <= 2) ? p.MODE : 0; storeWatchSet(); }
+  if (p.MHR !== undefined && p.MHR >= 120 && p.MHR <= 220) { WSET.maxHr = p.MHR; storeWatchSet(); }
+  if (p.RHR !== undefined && p.RHR >= 0   && p.RHR <= 120) { WSET.restHr = p.RHR; storeWatchSet(); }
   if (p.HR !== undefined)     { ST.hr = p.HR; ST.hrAt = now(); }
   if (p.STEPS !== undefined)  {
     var t = now();
-    if (ST.lastSteps && t > ST.lastSteps.at) {
-      var ds = p.STEPS - ST.lastSteps.n;
-      var spm = ds * 60000 / (t - ST.lastSteps.at);
-      if (ds >= 0 && spm <= 300) { ST.cad = Math.round(spm); ST.cadAt = t; }
+    // Cadence is the derivative of a coarse, Bluetooth-delivered step counter.
+    // Over one ~5 s message that derivative is dominated by integer-step
+    // quantisation and BLE arrival jitter, which throw individual points to
+    // ~2x / ~0.5x the true rate (in matched high/low pairs, since the running
+    // total stays correct). Average the rate over a short trailing window, with
+    // the span snapped to the watch's deterministic 5 s send cadence, to remove
+    // the spikes without shifting the bulk value or the run average.
+    ST.stepHist = ST.stepHist || [];
+    if (ST.stepHist.length && p.STEPS < ST.stepHist[ST.stepHist.length - 1].n) ST.stepHist = [];  // counter went backwards: restart
+    ST.stepHist.push({ n: p.STEPS, at: t });
+    while (ST.stepHist.length > 2 && t - ST.stepHist[0].at > C.CAD_WINDOW_MS) ST.stepHist.shift();
+    var b0 = ST.stepHist[0], dn = p.STEPS - b0.n, dtw = t - b0.at;
+    if (dn >= 0 && dtw >= 3500) {
+      var span = Math.round(dtw / C.CAD_SAMPLE_MS) * C.CAD_SAMPLE_MS || C.CAD_SAMPLE_MS;
+      var spm = dn * 60000 / span;
+      if (spm <= 300) { ST.cad = Math.round(spm); ST.cadAt = t; }
     }
     ST.lastSteps = { n: p.STEPS, at: t };
     ST.steps = p.STEPS;

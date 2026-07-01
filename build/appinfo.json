@@ -10,8 +10,8 @@
     ],
     "capabilities": [
         "location",
-        "health",
-        "configurable"
+        "configurable",
+        "health"
     ],
     "watchapp": {
         "watchface": false
@@ -42,7 +42,10 @@
         "MODE": 10022,
         "EXPERR": 10023,
         "TSPAN": 10024,
-        "RENAME": 10025
+        "RENAME": 10025,
+        "MHR": 10026,
+        "VO2": 10027,
+        "RHR": 10028
     },
     "resources": {
         "media": [
@@ -132,7 +135,7 @@
     "name": "runlog",
     "shortName": "RunLog",
     "longName": "RunLog",
-    "versionLabel": "1.18.0",
+    "versionLabel": "1.22.0",
     "companyName": "Kai Bagley",
     "appKeys": {
         "CMD": 10000,
@@ -160,6 +163,9 @@
         "MODE": 10022,
         "EXPERR": 10023,
         "TSPAN": 10024,
-        "RENAME": 10025
+        "RENAME": 10025,
+        "MHR": 10026,
+        "VO2": 10027,
+        "RHR": 10028
     }
 }

@@ -186,7 +186,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
 
   W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 1, SPLITP: 1 } });
   assert.deepStrictEqual(JSON.parse(W.store['runlog.set']),
-    { mi: false, ap: true, splits: true, mode: 0 }, 'watch settings persisted');
+    { mi: false, ap: true, splits: true, mode: 0, maxHr: 190, restHr: 0 }, 'watch settings persisted');
 
   W.clockMs = 1750000000000;
   W.fire('appmessage', { payload: { CMD: 1 } });
@@ -1092,6 +1092,83 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(Array.isArray(last) && last.length === 0, 'glance cleared when no runs remain');
 
   console.log('scenario 12 (app glance: last-run summary) OK');
+})();
+
+/* =======================================================================
+ * Scenario 13: VO2max estimate — a steady aerobic run with HR produces a
+ * plausible running VO2max via the ACSM/Swain submaximal method.
+ * ===================================================================== */
+(function () {
+  var W = makeWorld();
+  W.boot();
+  W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0, MHR: 190 } });   // km, user max HR 190
+  W.clockMs = 1750500000000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, 1750500000, -31.95, 115.85);
+  for (var i = 0; i < 75; i++) {   // long enough that >=20 points outlast the 2 min warm-up cut
+    W.fire('appmessage', { payload: { HR: 160 } });   // refresh HR inside the 15 s stale window
+    w.step(10 / 3, 5, 25);                             // 3.33 m/s = 200 m/min, steady
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });       // stop & save
+
+  var run = JSON.parse(W.store['runlog.runs'])[0];
+  // 200 m/min -> ACSM VO2 43.5; HR 160/190 = 84.2% -> Swain %VO2 ~73.8% -> ~59
+  assert(run.vo2max >= 53 && run.vo2max <= 66,
+    'running VO2max in plausible band (~59): ' + run.vo2max);
+  assert(run.vo2max === Math.round(run.vo2max) && run.vo2max > 0, 'VO2max is a positive integer');
+
+  console.log('scenario 13 (VO2max estimate) OK');
+})();
+
+/* =======================================================================
+ * Scenario 14: stored (and thus exported) elevation is smoothed, so a flat
+ * run with noisy GPS altitude doesn't export a wildly inflated gain.
+ * ===================================================================== */
+(function () {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0 } });
+  W.clockMs = 1750600000000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, 1750600000, -31.95, 115.85);
+  var raw = [];
+  for (var i = 0; i < 40; i++) {
+    var e = (i % 2 === 0) ? 0 : 8;   // +/-8 m sawtooth: pure GPS vertical noise on flat ground
+    raw.push(e); w.step(10 / 3, 5, e);
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var pts = JSON.parse(W.store['runlog.runs'])[0].pts;
+  var ele = pts.map(function (p) { return p[3]; }).filter(function (x) { return x !== ''; });
+  function tv(a) { var s = 0; for (var i = 1; i < a.length; i++) s += Math.abs(a[i] - a[i - 1]); return s; }
+  assert(tv(ele) < tv(raw) * 0.5, 'stored elevation smoothed: TV ' + tv(ele).toFixed(0) + ' << raw ' + tv(raw));
+  console.log('scenario 14 (elevation smoothing) OK');
+})();
+
+/* =======================================================================
+ * Scenario 15: per-point cadence survives Bluetooth arrival-time jitter.
+ * One interval's steps arrive per message, but at jittery gaps; the old
+ * instantaneous rate (steps / arrival-gap) would swing ~0.5x..2x (a 3 s gap
+ * reads ~260, a 7 s gap ~111). The snapped trailing window holds it steady.
+ * ===================================================================== */
+(function () {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0 } });
+  var t0 = 1750700000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  var gaps = [5,3,7,3,7,4,6,3,7,5,4,6,3,7,4,6,5,3,7,4,6,5,4,6,5];  // mean 5 s, heavy jitter
+  for (var i = 0; i < gaps.length; i++) {
+    w.step(2.6, gaps[i], 30);                                       // ~2.6 m/s, jittery spacing
+    W.fire('appmessage', { payload: { HR: 150, STEPS: (i + 1) * 13 } });  // 13 steps/interval = 156 spm
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var pts = JSON.parse(W.store['runlog.runs'])[0].pts;
+  var cad = pts.map(function (p) { return p[6]; }).filter(function (c) { return c > 0; }).slice(2);
+  var lo = Math.min.apply(null, cad), hi = Math.max.apply(null, cad);
+  assert(lo >= 140 && hi <= 175, 'cadence stays near 156 despite BLE jitter: ' + lo + '..' + hi);
+  assert(hi - lo <= 30, 'no 2x/0.5x cadence spikes (old code would span ~111..260): range ' + (hi - lo));
+  console.log('scenario 15 (cadence jitter robustness) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');
