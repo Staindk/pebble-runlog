@@ -4,12 +4,12 @@ A workout tracker for the Pebble Time 2 (also builds for Pebble 2 and Pebble Tim
 
 ## Where your activities live
 
-This trips everyone up once, so up front: when the watch says **SAVED**, the activity has been stored **on your phone**, inside the Pebble app's storage for RunLog (the last 4 activities are kept). There's no file in your Downloads yet and nothing on the watch itself — the watch only holds the debrief screen you're looking at, and its footer now says so: *"On phone: gear icon"*.
+This trips everyone up once, so up front: when the watch says **SAVED**, the activity has been stored **on your phone**, inside the Pebble app's storage for RunLog (the last 4 activities are kept). There's no file in your Downloads yet and nothing on the watch itself — the watch only holds the debrief screen you're looking at, and its footer now says so: *"On phone: gear icon"*. SAVED is only shown once the write has actually succeeded; if there was nothing to keep (a stray start/stop with no GPS and no real time) or storage was full, the watch says **NOT SAVED** instead of pretending. A treadmill/no-GPS run *is* kept — with its time and steps, just no route or distance.
 
 To see your activities: open the **Pebble phone app → RunLog → gear/settings icon**. That opens the full debrief — map, charts, splits — for every saved activity. From there you can get a *tangible* copy two ways:
 
 - **Download .gpx** on any activity saves a file to your phone (share it anywhere), or
-- set up an **upload destination** and send any activity to a server of your choosing with one button — from the watch debrief, or per-run on the phone page (see *Uploading* below). Uploads are fully manual now: nothing leaves your phone until you press Upload.
+- set up an **upload destination** and send any activity to a server of your choosing with one button — from the watch debrief, or per-run on the phone page (see *Uploading* below). Uploads are fully manual: no *activity file* leaves your phone until you press Upload. (One caveat, for full honesty: opening a run's detail on the phone page fetches street-map tiles for that route's area from OpenStreetMap/CARTO, so the map view does make a network request — see *Privacy*.)
 
 RunLog also asks the phone to pop the debrief open automatically right after each save, but most versions of the Pebble app only honour that from the gear icon, so don't be surprised if the gear is the only way in.
 
@@ -151,7 +151,7 @@ Also worth a look if you're shopping around the self-hosted space: **Endurain** 
 
 ```
 runlog/
-├── package.json            manifest (23 message keys, platforms, capabilities)
+├── package.json            manifest (30 message keys, platforms, capabilities)
 ├── wscript                 standard Pebble build script
 ├── src/
 │   ├── c/runlog.h          shared types (settings, modes, stats, graph buffers)
@@ -167,7 +167,7 @@ runlog/
 └── tools/
     ├── page.html           the debrief/settings page (edit this one)
     ├── build_page.js       embeds page.html into src/pkjs/page.js
-    ├── test_pipeline.js    full phone-side simulation tests (4 scenarios)
+    ├── test_pipeline.js    full phone-side simulation tests (17 scenarios)
     └── test_export.js      page rendering/map/GPX/action tests
 ```
 
@@ -196,11 +196,28 @@ node tools/test_pipeline.js && node tools/test_export.js
 
 ## Notes & troubleshooting
 
-- **Battery:** GPS is by far the biggest cost, all of it on the phone. RunLog runs high-accuracy GPS only while a run is *active* — it's acquired on start and released the instant you save (`startGeo`/`stopGeo`), and the phone has no background timers running otherwise. The watch is tuned to spend cycles only where they buy something: the optical HR sensor samples every second while recording (and returns to the OS default afterwards), and rather than waste those readings the watch keeps a running mean of the last `HR_AVG_N` (5) of them — peeked from the per-second timer it's already awake for, so at no extra wakeup — and pushes that *smoothed* value plus steps to the phone every `SAMPLE_PERIOD_S` (5 s) rather than per fix. The seconds timer itself drops to once-a-minute on the READY screen and the debrief (only a running activity counts seconds), the wall clock is recomputed only when the minute actually changes rather than 60×/minute, and the step-count DB read happens at the 5 s push cadence rather than every second. Stats sent to the watch go through a coalescing queue, so a slow Bluetooth link self-limits instead of piling up. **One deliberate tradeoff:** GPS is warmed up the moment the app opens (in the `ready` handler), so pressing start gives you an immediate fix — at the cost of draining while you sit on the READY screen. If you'd rather save that power and accept a few seconds' wait for first lock after pressing start, move the `startGeo()` call out of the `ready` handler and into `startRun()`.
+- **Battery:** GPS is by far the biggest cost, all of it on the phone. RunLog runs high-accuracy GPS essentially only while a run is *active* — it's warmed up when the app opens and released the instant you save, or after a few idle minutes if you never start (`startGeo`/`stopGeo`/`GPS_IDLE_MS`), and the phone has no other background timers running. The watch is tuned to spend cycles only where they buy something: the optical HR sensor — by far the biggest drain on the watch — samples every `HR_RUN_PERIOD_S` (10 s) while recording and returns to the OS default afterwards. It used to sample every second, but during a run the firmware only refreshes the BPM value every ~50 s anyway (optical sensing fights wrist motion), so a fast sample rate just burned LED power for resolution that never arrived; 10 s lets the sensor power-cycle for no real loss (lower the constant if you want finer HR back). The watch peeks at the 5 s push cadence rather than every second, keeps a running mean of the last `HR_AVG_N` (3) readings to take the shimmer off, and pushes that *smoothed* value plus steps to the phone every `SAMPLE_PERIOD_S` (5 s). Live distance/pace pushes to the watch are throttled to once per `STAT_MIN_S` (5 s) — each one wakes the watch radio. The seconds timer itself drops to once-a-minute on the READY screen and the debrief (only a running activity counts seconds), the wall clock is recomputed only when the minute actually changes rather than 60×/minute, and the step-count DB read happens at the 5 s push cadence rather than every second. Stats sent to the watch go through a coalescing queue, so a slow Bluetooth link self-limits instead of piling up. **On GPS warm-up:** GPS is warmed up the moment the app opens (in the `ready` handler), so pressing start gives you an immediate fix. It used to keep draining for as long as you sat on the READY screen; now it auto-releases after `GPS_IDLE_MS` (5 min) if no run has started, so leaving the app open no longer quietly flattens the battery. Starting a run cancels the release and re-acquires.
 - **Storage:** the phone keeps the last 4 activities. The debrief page ships as a self-contained `data:` URI, so with very long activities it gets large; if it ever refuses to open, delete an old activity.
-- **No-GPS sessions** (treadmill): the watch still shows time/steps/HR in the debrief, but nothing is stored on the phone — there's no track to keep.
-- **Crash recovery:** if the phone app dies mid-activity, the partial recording is recovered (named `… (recovered)`) on the next start and kept for you to upload when you like.
+- **No-GPS sessions** (treadmill): if the phone never gets a fix, the run is still kept once it has meaningful elapsed time — time, steps and HR, with no route or distance and no VO₂max. Only a genuinely empty stop (no GPS *and* no real time) is discarded, and the watch says **NOT SAVED** when that happens rather than flashing a bogus summary.
+- **Crash recovery:** if the phone app dies mid-activity, a *fresh* checkpoint (under 20 min old) is resumed on the next launch so recording continues from where it left off — the tail of the run is no longer silently lost. An older checkpoint is instead saved as `… (recovered)`. Either way a per-run session id keeps a recovered activity from being written twice.
 - **Logs:** `pebble logs --phone <IP>` shows the phone-side JS console — first stop if anything misbehaves. On every launch RunLog logs one line when GPS locks (`RunLog: GPS ok, accuracy N m`) and warns if it has to work around a broken fix timestamp.
 - **Pace fixed in 1.3.1:** all pace, moving-time and GPX timing maths used to trust the `timestamp` field on geolocation fixes. Some phone apps report it missing, zero or in the wrong unit, which left distance working but pace stuck on `--:--` and the pace graph empty. RunLog now validates the timestamp and falls back to the wall clock, so pace works regardless; the first live reading also appears a few seconds sooner (~15 s into a run).
 - **Units** affect display and split boundaries only; storage, the wire protocol and GPX stay metric.
 - **Old configs** from earlier RunLog versions migrate automatically (a stored PUT setup becomes the WebDAV preset).
+
+## Privacy & data
+
+RunLog is built to keep your data local by default.
+
+- **On the phone**, activities live in the Pebble app's private storage for RunLog (the last 4). GPS positions, HR and steps never leave the phone unless *you* press Upload to a destination *you* configured.
+- **The one network request you don't explicitly trigger** is map tiles: opening a run's detail on the phone page fetches street-map tiles for that route's area from OpenStreetMap and CARTO, which necessarily reveals the route's rough location to those tile servers. Everything else on the page is self-contained; if your phone's web view blocks remote images the map falls back to a plain grid and nothing else changes.
+- **Uploads** go only to the server you set, using the credentials you enter. Prefer an **HTTPS** destination — RunLog warns in the log if you point it at a plain-`http://` server with credentials, because both the credentials and the activity file would then cross the network unencrypted. Credentials are stored in the app's local config and are **not** written to the diagnostic log (the log records the account/email and server responses, never the password or key).
+- **Nothing is sent to the author or any third party.** There is no analytics, no telemetry, no account.
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the per-version history. The current release is **1.24** — a large correctness/robustness pass (honest saves, retryable messaging, export and unit fixes, and assorted watch-UI corrections) in response to an external review; it changes the watch binary, so **reflash the watch** after updating, not just the phone bundle.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). RunLog is an independent project and is not affiliated with or endorsed by Pebble, Core Devices, or Anthropic.

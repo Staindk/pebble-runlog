@@ -45,9 +45,11 @@ function rlFitBuild(run) {
   var sport = [1, 11, 2][act];          // FIT sport: run / walk / cycle
   var t0 = pts[0][0], tEnd = pts[pts.length - 1][0];
 
-  // cumulative distance (haversine)
+  // cumulative distance (haversine); carry the total across a pause (seg==1)
+  // rather than adding the relocation jump as if it were distance travelled.
   var cum = [0], R = 6371000;
   for (i = 1; i < pts.length; i++) {
+    if (pts[i][5] === 1) { cum.push(cum[i - 1]); continue; }
     var a1 = pts[i - 1], b1 = pts[i];
     var dLa = rlRad(b1[1] - a1[1]), dLo = rlRad(b1[2] - a1[2]);
     var hv = Math.sin(dLa / 2) * Math.sin(dLa / 2) +

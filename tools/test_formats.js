@@ -215,3 +215,25 @@ console.log('\nALL FORMAT TESTS PASSED');
   console.log('VO2MAX estimator OK');
 })();
 
+
+/* #6: exported cumulative distance must NOT jump across a pause (seg==1). */
+(function pauseDistance() {
+  var R = {
+    name: 'Pause test', start: 1750000000000, act: 0,
+    dist: 208, dur: 240, mov: 60, avgHr: 0, maxHr: 0, steps: 0, egain: 0,
+    pts: [
+      [1750000000, -31.9500, 115.8500, '', 0, 0, 0],
+      [1750000030, -31.9500, 115.8511, '', 0, 0, 0],   // ~104 m east
+      [1750000200, -31.9500, 116.0500, '', 0, 1, 0],   // resumed ~18 km away — relocation, not distance (seg=1)
+      [1750000230, -31.9500, 116.0511, '', 0, 0, 0]     // ~104 m east
+    ]
+  };
+  var t = tcx.build(R);
+  var ds = (t.match(/<DistanceMeters>[\d.]+<\/DistanceMeters>/g) || [])
+             .map(function (m) { return parseFloat(m.replace(/[^\d.]/g, '')); });
+  var lastTp = ds[ds.length - 1];
+  assert(lastTp < 400, 'TCX cumulative distance skips the paused relocation (got ' + Math.round(lastTp) + ' m, old code ~18 km)');
+  // FIT carries the same fix; just assert it builds without ballooning the total field is exercised elsewhere.
+  assert(fit.build(R).length > 0, 'FIT still builds with a paused relocation');
+  console.log('#6 pause-aware export distance OK');
+})();

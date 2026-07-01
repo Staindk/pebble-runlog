@@ -6,9 +6,13 @@ function rlTcxIso(t) { return new Date(t * 1000).toISOString().replace(/\.\d{3}Z
 function rlTcxEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
 function rlTcxRad(d) { return d * Math.PI / 180; }
 function rlTcxCum(pts) {
-  // cumulative metres along the track (haversine between fixes)
+  // cumulative metres along the track (haversine between fixes). A point flagged
+  // seg==1 is the first fix after a pause; the gap to it is a relocation, not
+  // distance travelled, so we carry the running total across it rather than add
+  // the straight-line jump (which used to inflate the last trackpoint wildly).
   var out = [0], R = 6371000, i;
   for (i = 1; i < pts.length; i++) {
+    if (pts[i][5] === 1) { out.push(out[i - 1]); continue; }
     var a = pts[i - 1], b = pts[i];
     var dLa = rlTcxRad(b[1] - a[1]), dLo = rlTcxRad(b[2] - a[2]);
     var la1 = rlTcxRad(a[1]), la2 = rlTcxRad(b[1]);

@@ -1,7 +1,7 @@
 {
   "name": "runlog",
   "author": "Kai Bagley",
-  "version": "1.22.0",
+  "version": "1.24.0",
   "keywords": [
     "pebble-app"
   ],
@@ -54,7 +54,8 @@
       "RENAME",
       "MHR",
       "VO2",
-      "RHR"
+      "RHR",
+      "NOSAVE"
     ],
     "resources": {
       "media": [

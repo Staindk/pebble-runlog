@@ -380,8 +380,10 @@ function lastAction(dom) {
   assert.strictEqual(S.fmtDist(1609.344), '1.00', 'distance converts to mi');
   assert.strictEqual(S.fmtEg(10), '33 ft', 'elevation converts to ft');
   S.showDetail(0);
-  assert(dom.ids.dstats.innerHTML.indexOf('BEST MI') >= 0, 'best-mile caption');
-  assert(dom.ids.hsplits.textContent.indexOf('(MI)') >= 0, 'splits header in miles');
+  // #12: RUN_A was recorded in km, so its splits stay in km even though the page
+  // is in miles mode — aggregate stats convert, but splits keep their recorded unit.
+  assert(dom.ids.dstats.innerHTML.indexOf('BEST KM') >= 0, 'best split keeps the run\'s km unit');
+  assert(dom.ids.hsplits.textContent.indexOf('(KM)') >= 0, 'splits header keeps the run\'s km unit');
 
   var empty = boot([], CFG, false, 0);
   assert(empty.ids.list.innerHTML.indexOf('No runs saved yet') >= 0, 'empty state');

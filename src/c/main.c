@@ -18,8 +18,12 @@
 
 // ---------------- Tunables ----------------
 #define SAMPLE_PERIOD_S 5   // how often HR/steps are pushed to the phone
-#define HR_RUN_PERIOD_S 1   // HR sensor sample period, s (fine-grained on purpose)
-#define HR_AVG_N        5   // running mean of the last N one-second HR samples
+#define HR_RUN_PERIOD_S 10  // HR sensor sample period, s. The optical sensor is the
+                            // biggest battery draw on the watch, and during running the
+                            // firmware only refreshes BPM every ~50 s anyway, so a short
+                            // period burns LED power for resolution we never get. Lower
+                            // this for finer HR at the cost of battery.
+#define HR_AVG_N        3   // running mean of the last N HR samples (peeked every SAMPLE_PERIOD_S)
 
 
 typedef enum {
@@ -46,7 +50,7 @@ Settings g_set = {
   .miles = false,
   .autopause = true,
   .splits = true,
-  .max_hr = 180,
+  .max_hr = 190,
   .rest_hr = 0,
   .mode = MODE_RUN,
 };
@@ -80,7 +84,7 @@ static HealthValue s_steps_at_start = 0;
 static bool s_have_step_base = false;
 
 static char s_time_buf[16], s_dist_buf[12], s_pace_buf[12];
-static char s_hr_buf[12], s_steps_buf[8], s_flash_buf[20], s_acc_buf[14];
+static char s_hr_buf[12], s_steps_buf[8], s_flash_buf[20], s_acc_buf[20];
 static TextLayer *s_acc_layer;
 
 // chrome geometry (set during layout)
@@ -120,9 +124,9 @@ GColor hr_zone_color(int hr) {
 static void prv_update_acc(void) {
   if (!s_acc_layer) return;
   if (!s_gps_ok || s_acc_m < 0) {
-    snprintf(s_acc_buf, sizeof(s_acc_buf), "GPS --");
+    snprintf(s_acc_buf, sizeof(s_acc_buf), "%s GPS--", mode_label());
   } else {
-    snprintf(s_acc_buf, sizeof(s_acc_buf), "\xc2\xb1%dm", s_acc_m);
+    snprintf(s_acc_buf, sizeof(s_acc_buf), "%s \xc2\xb1%dm", mode_label(), s_acc_m);
   }
   text_layer_set_text(s_acc_layer, s_acc_buf);
 }
@@ -160,6 +164,7 @@ static void prv_update_hr(void) {
 }
 
 static void prv_update_steps(void) {
+  if (g_set.mode == MODE_CYCLE) { text_layer_set_text(s_steps_layer, "--"); return; }  // steps/cadence aren't shown for rides
   snprintf(s_steps_buf, sizeof(s_steps_buf), "%d", s_steps);
   text_layer_set_text(s_steps_layer, s_steps_buf);
 }
@@ -242,10 +247,10 @@ static void prv_update_clock(void) {
   text_layer_set_text(s_clock_layer, s_clock_buf);
 }
 
-// Called every second while active. The HR sensor samples at 1 s, so peeking
-// here (we're already awake for the timer) captures each reading at no extra
-// wakeup; we keep a short running mean to take the shimmer off a noisy sensor.
-// The smoothed value is what's shown and what's pushed to the phone.
+// Called every SAMPLE_PERIOD_S while active (we're already awake for the timer).
+// The sensor now samples slowly to save power, so we peek at the same cadence and
+// keep a short running mean to take the shimmer off the reading. The smoothed value
+// is what's shown and what's pushed to the phone.
 static void prv_sample_hr(void) {
 #if defined(PBL_HEALTH)
   int v = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
@@ -340,6 +345,18 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   bool stats_changed = false;
   bool track_changed = false;
 
+  if (dict_find(iter, MESSAGE_KEY_NOSAVE)) {
+    // The phone had nothing to store (no GPS and no meaningful time, or storage
+    // was full). Don't sit forever on "SAVING..." or imply a save happened.
+    s_state = STATE_READY;
+    prv_set_hr_fast(false);
+    vibes_double_pulse();
+    prv_flash("NOT SAVED");
+    prv_update_actionbar();
+    prv_set_state_text();
+    return;
+  }
+
   if (saved) {
     s_state = STATE_DONE;
     vibes_long_pulse();
@@ -351,6 +368,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     g_stats.avgp_s = 0;
     g_stats.avg_hr = 0;
     g_stats.max_hr = 0;
+    g_stats.vo2 = 0;
     g_stats.egain_m = 0;
     g_stats.trk_n = 0;
     g_stats.trk_span_m = 0;
@@ -477,6 +495,7 @@ static void prv_select_click(ClickRecognizerRef rec, void *ctx) {
       s_state = STATE_RUNNING;
       s_autopaused = false;
       s_elapsed_s = 0; s_dist_m = 0; s_pace_s = 0; s_steps = 0;
+      s_hr = 0; s_hr_ring_n = 0; s_hr_ring_i = 0;   // don't carry the previous run's HR into this one
       s_have_step_base = false;
       g_stats.trk_n = 0; g_stats.trk_span_m = 0; g_stats.pace_n = 0; g_stats.hr_n = 0;
       prv_update_time(); prv_update_dist(); prv_update_pace(); prv_update_steps();
@@ -542,7 +561,7 @@ static void prv_back_click(ClickRecognizerRef rec, void *ctx) {
 static void prv_click_config(void *ctx) {
   (void)ctx;
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 600, prv_select_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 1000, prv_select_long, NULL);  // deliberate hold to end (was 600 ms — too easy to trigger by accident)
   window_single_click_subscribe(BUTTON_ID_BACK, prv_back_click);
   // Allow the UP button to open the settings menu.  Users can adjust
   // units, auto‑pause and split alerts at any time when not recording.
@@ -561,8 +580,7 @@ static void prv_tick(struct tm *tick_time, TimeUnits units) {
     prv_update_time();
   }
   if (s_state == STATE_RUNNING || s_state == STATE_PAUSED) {
-    prv_sample_hr();                                   // 1 Hz capture + running mean
-    if (cnt % SAMPLE_PERIOD_S == 0) prv_refresh_steps();
+    if (cnt % SAMPLE_PERIOD_S == 0) { prv_sample_hr(); prv_refresh_steps(); }
   }
   if (units & MINUTE_UNIT) prv_update_clock();         // clock only ticks by the minute
   if (s_state == STATE_RUNNING && (cnt % SAMPLE_PERIOD_S == 0)) prv_send_sample();
@@ -656,11 +674,14 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_chrome_layer, prv_chrome_update);
   layer_add_child(root, s_chrome_layer);
 
-  // top bar: GPS accuracy by the dot (left), wall-clock time (right)
-  s_acc_layer = prv_make_text(root, GRect(24, 2, CW - 82, 20),
+  // top bar: activity + GPS accuracy by the dot (left), wall-clock time (right).
+  // The clock box was 80 px wide but only needs room for "HH:MM"; trimming it and
+  // ending the accuracy box exactly where the clock box starts removes the ~30 px
+  // frame overlap that let a long accuracy string collide with the time.
+  s_acc_layer = prv_make_text(root, GRect(24, 2, CW - 76, 20),
                               FONT_KEY_GOTHIC_14, GTextAlignmentLeft,
                               PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
-  s_clock_layer = prv_make_text(root, GRect(CW - 88, 2, 80, 20),
+  s_clock_layer = prv_make_text(root, GRect(CW - 52, 2, 44, 20),
                                 FONT_KEY_GOTHIC_14, GTextAlignmentRight,
                                 PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
   prv_update_clock();
@@ -788,7 +809,7 @@ static void settings_load(void) {
   if (persist_exists(PKEY_MODE))    g_set.mode      = persist_read_int(PKEY_MODE);
   if (persist_exists(PKEY_RESTHR))  g_set.rest_hr   = persist_read_int(PKEY_RESTHR);
   // ensure values are within sensible ranges
-  if (g_set.max_hr < 80 || g_set.max_hr > 220) g_set.max_hr = 180;
+  if (g_set.max_hr < 80 || g_set.max_hr > 220) g_set.max_hr = 190;
   if (g_set.rest_hr < 0 || g_set.rest_hr > 120) g_set.rest_hr = 0;
   if (g_set.mode < 0 || g_set.mode >= MODE_COUNT) g_set.mode = MODE_RUN;
 }

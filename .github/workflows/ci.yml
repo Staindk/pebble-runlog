@@ -15,6 +15,11 @@ jobs:
           node-version: '20'
       - name: Run JS test suite
         run: bash tools/test.sh
+      - name: Check generated page.js is up to date
+        run: |
+          node tools/build_page.js
+          git diff --exit-code src/pkjs/page.js \
+            || (echo "src/pkjs/page.js is stale — run 'node tools/build_page.js' and commit the result" && exit 1)
 
   # TODO: add a native build + emulator UI check once the Pebble SDK is
   # wired into CI (it pulls from sdk.repebble.com, so it needs the toolchain

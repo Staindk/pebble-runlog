@@ -457,7 +457,7 @@ static void prv_load(Window *window) {
   int y = 2;
   s_title = prv_text(GRect(10, y, CW - 20, 20), FONT_KEY_GOTHIC_18_BOLD,
                      GTextAlignmentLeft, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
-  text_layer_set_text(s_title, "RUN SAVED");
+  text_layer_set_text(s_title, g_set.mode == MODE_WALK ? "WALK SAVED" : g_set.mode == MODE_CYCLE ? "RIDE SAVED" : "RUN SAVED");
   y += 22;
 
   s_dist = prv_text(GRect(0, y - 4, CW, 40),

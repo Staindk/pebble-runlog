@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src *; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>RunLog</title>
 <style>
   body{margin:0;padding:18px 14px 40px;background:#0f1419;color:#e8edf2;
@@ -170,7 +171,7 @@
       <button onclick="zoomBy(-1)">&#8722;</button>
       <span class="maptip">pinch or double-tap to zoom</span>
     </div>
-    <div class="attrib">&copy; OpenStreetMap contributors &copy; CARTO</div>
+    <div class="attrib">&copy; OpenStreetMap contributors &copy; CARTO &middot; opening a run fetches map tiles for its area over the network</div>
   </div>
 
   <div class="statgrid" id="dstats"></div>
@@ -200,6 +201,15 @@ var CUR = -1;
 var UD = MILES ? 1609.344 : 1000;
 var UN = MILES ? 'mi' : 'km';
 
+/* Splits are bucketed at record time in the unit the run used then (r.mi), and
+ * stored in metres. They must be shown in THAT unit regardless of the phone's
+ * current toggle, or old km splits get mislabelled as miles. */
+function runUD(r){ return r.mi ? 1609.344 : 1000; }
+function runUN(r){ return r.mi ? 'mi' : 'km'; }
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escXml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtPaceR(r, skm){ if (!skm) return '--:--'; var s = Math.round(r.mi ? skm * 1.609344 : skm); return Math.floor(s / 60) + ':' + z2(s % 60); }
+
 function $(id){ return document.getElementById(id); }
 function z2(n){ return (n < 10 ? '0' : '') + n; }
 function fmtDur(s){ s = Math.round(s); var h = Math.floor(s/3600), m = Math.floor(s%3600/60);
@@ -212,7 +222,7 @@ function fmtSpeed(v){ if (!v) return '--';
   return v >= 10 ? String(Math.round(v)) : v.toFixed(1); }
 function fmtEg(m){ return MILES ? Math.round(m*3.28084)+' ft' : Math.round(m)+' m'; }
 function actOf(r){ return (r.act >= 0 && r.act <= 2) ? r.act : 0; }
-function splitUnit(r){ return UD * (actOf(r) === 2 ? 5 : 1); }
+function splitUnit(r){ return runUD(r) * (actOf(r) === 2 ? 5 : 1); }
 function paceOrSpeed(r, skm){          // rides read in km/h (mph), the rest in pace
   if (!skm) return '--';
   if (actOf(r) === 2) return fmtSpeed((3600/skm) * (MILES ? 0.6213712 : 1)) + ' ' + (MILES ? 'mph' : 'km/h');
@@ -230,7 +240,7 @@ function gpx(r){
     'xmlns="http://www.topografix.com/GPX/1/1" ',
     'xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">\n',
     '<metadata><time>' + iso(r.pts[0][0]) + '</time></metadata>\n',
-    '<trk><name>' + r.name + '</name><type>' +
+    '<trk><name>' + escXml(r.name) + '</name><type>' +
       ['running','walking','cycling'][actOf(r)] + '</type>\n<trkseg>\n'];
   for (var i = 0; i < r.pts.length; i++) {
     var p = r.pts[i];
@@ -274,7 +284,7 @@ function renderList(){
     var r = RUNS[i];
     h += '<div class="card rcard" onclick="showDetail(' + i + ')">' +
       '<div class="km">' + fmtDist(r.dist) + '<small>' + UN + '</small></div>' +
-      '<div class="info"><div class="name">' + r.name + badge(r.up) + '</div>' +
+      '<div class="info"><div class="name">' + escHtml(r.name) + badge(r.up) + '</div>' +
       '<div class="chips">' + fmtDur(r.mov || r.dur) + ' &middot; ' + paceOrSpeed(r, r.avgp) +
       (r.avgHr ? ' &middot; &#9829; ' + r.avgHr : '') + '</div></div>' +
       '<div style="color:#7d8a96">&#8250;</div></div>';
@@ -292,11 +302,11 @@ function showDetail(i){
   var r = RUNS[i];
   $('vlist').style.display = 'none';
   $('vdetail').style.display = '';
-  $('dtitle').innerHTML = r.name + badge(r.up);
+  $('dtitle').innerHTML = escHtml(r.name) + badge(r.up);
 
   var best = bestSplit(r);
   var ride = actOf(r) === 2;
-  var su = splitUnit(r) / UD;            // 1 or 5
+  var su = splitUnit(r) / runUD(r);            // 1 or 5
   $('dstats').innerHTML =
     stat('DISTANCE', fmtDist(r.dist), UN) +
     stat('MOVING TIME', fmtDur(r.mov || r.dur), r.mov && r.dur > r.mov + 5 ? fmtDur(r.dur) + ' total' : '') +
@@ -309,12 +319,12 @@ function showDetail(i){
           : stat('CADENCE', r.cad || '--', 'spm')) +
     (ride ? stat('ELAPSED', fmtDur(r.dur), r.dur > (r.mov||r.dur) + 5 ? 'incl. stops' : '')
           : stat('STEPS', r.steps || '--', '')) +
-    (ride ? stat('BEST ' + su + UN.toUpperCase(), best ? fmtSpeed((3600/best) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
-          : stat('BEST ' + UN.toUpperCase(), best ? fmtPace(best) : '--', '/' + UN));
+    (ride ? stat('BEST ' + su + runUN(r).toUpperCase(), best ? fmtSpeed((3600/best) * (r.mi ? 0.6213712 : 1)) : '--', r.mi ? 'mph' : 'km/h')
+          : stat('BEST ' + runUN(r).toUpperCase(), best ? fmtPaceR(r, best) : '--', '/' + runUN(r)));
 
   $('hspeed').textContent = 'SPEED ' + (MILES ? 'MPH' : 'KM/H');
   $('hele').textContent = 'ELEVATION';
-  $('hsplits').textContent = 'SPLITS (' + (actOf(r) === 2 ? '5 ' : '') + UN.toUpperCase() + ')';
+  $('hsplits').textContent = 'SPLITS (' + (actOf(r) === 2 ? '5 ' : '') + runUN(r).toUpperCase() + ')';
   var tns = ['Run', 'Walk', 'Ride'], th = '';
   for (var ti = 0; ti < 3; ti++) {
     th += '<button class="' + (actOf(r) === ti ? 'ton on' : 'ton') +
@@ -447,7 +457,7 @@ function chart(id, xs, ys, o){
 /* ---------- splits ---------- */
 function renderSplits(r){
   if (!r.splits || !r.splits.length) { $('splits').innerHTML = '<p class="note">No splits.</p>'; return; }
-  var SU = splitUnit(r), mult = SU / UD, ride = actOf(r) === 2;
+  var SU = splitUnit(r), mult = SU / runUD(r), ride = actOf(r) === 2;
   var worst = 0, best = 1e9, i, paces = [];
   for (i = 0; i < r.splits.length; i++) {
     var s = r.splits[i], p = s.s / (s.d / 1000);
@@ -460,8 +470,8 @@ function renderSplits(r){
     var s2 = r.splits[i], p2 = paces[i];
     var full = s2.d > SU*0.99;
     var wpx = Math.max(8, Math.round(140 * (worst ? (worst/p2) : 1)));
-    var label = full ? ((i+1) * mult) : (s2.d/UD).toFixed(1);
-    var val = ride ? fmtSpeed((3600/p2) * (MILES ? 0.6213712 : 1)) : fmtPace(p2);
+    var label = full ? ((i+1) * mult) : (s2.d/runUD(r)).toFixed(1);
+    var val = ride ? fmtSpeed((3600/p2) * (r.mi ? 0.6213712 : 1)) : fmtPaceR(r, p2);
     h += '<div class="split"><div class="n">' + label + '</div>' +
       '<div class="bar' + (full && Math.abs(p2-best) < 0.5 ? ' best' : '') + '" style="width:' + wpx + 'px"></div>' +
       '<div class="t">' + val + '</div>' +

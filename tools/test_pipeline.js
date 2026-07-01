@@ -292,7 +292,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
    'egain', 'cad', 'steps', 'mi', 'splits', 'up', 'pts'].forEach(function (k) {
     assert(k in r, 'run field ' + k);
   });
-  assert(/^\d{4}-\d{2}-\d{2}_run$/.test(r.name), 'templated run name: ' + r.name);
+  assert(/^\d{4}-\d{2}-\d{2}_\d{4}_run$/.test(r.name), 'templated run name (now time-bearing): ' + r.name);
   assert.strictEqual(r.up, 0, 'not uploaded yet');
   assert(r.cad >= 160 && r.cad <= 176, 'cadence ~168, got ' + r.cad);
   assert(r.pts[0].length === 7, 'points carry cadence column');
@@ -347,7 +347,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
 
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
   assert(lg.some(function (m) { return /GPS ok, accuracy 8 m/.test(m); }), 'gps logged');
-  assert(lg.some(function (m) { return /^saved "\d{4}-\d{2}-\d{2}_run/.test(m); }), 'save logged');
+  assert(lg.some(function (m) { return /^saved "\d{4}-\d{2}-\d{2}_\d{4}_run/.test(m); }), 'save logged');
   assert(lg.some(function (m) { return /upload -> custom example\.test/.test(m); }), 'attempt logged');
   assert(lg.some(function (m) { return /upload FAILED \(HTTP 500\)/.test(m); }), 'failure logged');
 
@@ -357,7 +357,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var html = decodeURIComponent(W.opened[1].replace('data:text/html;charset=utf-8,', ''));
   assert(html.indexOf('__RUNLOG_') < 0, 'all placeholders replaced');
   assert(html.indexOf('var RUNS = [{') >= 0, 'runs injected');
-  assert(/"name":"\d{4}-\d{2}-\d{2}_run/.test(html), "run name in page");
+  assert(/"name":"\d{4}-\d{2}-\d{2}_\d{4}_run/.test(html), "run name in page");
   assert(html.indexOf('var MILES = false') >= 0, 'units injected');
   assert(html.indexOf('var INITIAL = 0') >= 0, 'gear opens on the list view');
   assert(html.indexOf('"auth":"Bearer tok123"') >= 0, 'cfg injected');
@@ -415,7 +415,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(W.xhrs.length, 1, 'manual upload to webdav');
   var d = W.xhrs[0];
   assert.strictEqual(d.method, 'PUT');
-  assert(/^https:\/\/dav\.test\/gpx\/\d{4}-\d{2}-\d{2}_run.*\.gpx$/.test(d.url), 'filename appended: ' + d.url);
+  assert(/^https:\/\/dav\.test\/gpx\/\d{4}-\d{2}-\d{2}_\d{4}_run.*\.gpx$/.test(d.url), 'filename appended: ' + d.url);
   assert(!('X-Filename' in d.headers), 'no X-Filename on PUT');
   assert.strictEqual(b64dec(d.headers.Authorization.replace('Basic ', '')), 'kai:hunter2',
                      'user:pass auto-wrapped as Basic');
@@ -437,7 +437,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
                      'API_KEY:sekret123', 'intervals basic auth');
   assert(iv.headers['Content-Type'].indexOf('multipart/form-data; boundary=') === 0,
          'multipart content type');
-  assert(iv.body.indexOf('name="file"; filename="') >= 0 && /filename="\d{4}-\d{2}-\d{2}_run/.test(iv.body), 'multipart file field');
+  assert(iv.body.indexOf('name="file"; filename="') >= 0 && /filename="\d{4}-\d{2}-\d{2}_\d{4}_run/.test(iv.body), 'multipart file field');
   assert(iv.body.indexOf('<gpx ') >= 0, 'gpx inside multipart');
   iv.respond(200);
   assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1);
@@ -459,7 +459,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', idx: 0 })) });
   var lg = W.xhrs[3];
   assert.strictEqual(lg.method, 'PUT', 'legacy PUT config still PUTs');
-  assert(/^https:\/\/old\.test\/dav\/\d{4}-\d{2}-\d{2}_run.*\.gpx$/.test(lg.url), 'legacy URL + filename');
+  assert(/^https:\/\/old\.test\/dav\/\d{4}-\d{2}-\d{2}_\d{4}_run.*\.gpx$/.test(lg.url), 'legacy URL + filename');
   lg.respond(201);
 
   console.log('scenario 2 (miles, webdav/intervals/runalyze/legacy presets) OK');
@@ -525,7 +525,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('appmessage', { payload: { CMD: 4 } });
 
   var walk = JSON.parse(W.store['runlog.runs'])[0];
-  assert(/^\d{4}-\d{2}-\d{2}_walk$/.test(walk.name), 'walk name: ' + walk.name);
+  assert(/^\d{4}-\d{2}-\d{2}_\d{4}_walk$/.test(walk.name), 'walk name: ' + walk.name);
   assert.strictEqual(walk.act, 1, 'walk activity stored');
 
   /* FitTrackee auto-export: Bearer token, multipart file + data(sport_id) */
@@ -541,7 +541,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(ft.url, 'https://ft.home.lan/api/workouts', 'trailing slash trimmed');
   assert.strictEqual(ft.headers.Authorization, 'Bearer jwt-abc');
   assert(ft.headers['Content-Type'].indexOf('multipart/form-data') === 0, 'multipart');
-  assert(/filename="\d{4}-\d{2}-\d{2}_walk/.test(ft.body), 'file field');
+  assert(/filename="\d{4}-\d{2}-\d{2}_\d{4}_walk/.test(ft.body), 'file field');
   assert(ft.body.indexOf('name="data"') >= 0 &&
          ft.body.indexOf('{"sport_id":6}') >= 0, 'walking sport id');
   assert(ft.body.indexOf('<type>walking</type>') >= 0, 'gpx type walking');
@@ -578,7 +578,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('appmessage', { payload: { CMD: 4 } });
   var runs = JSON.parse(W.store['runlog.runs']);
   var ride = runs[runs.length - 1];
-  assert(/^\d{4}-\d{2}-\d{2}_ride$/.test(ride.name), 'ride name: ' + ride.name);
+  assert(/^\d{4}-\d{2}-\d{2}_\d{4}_ride$/.test(ride.name), 'ride name: ' + ride.name);
   assert.strictEqual(ride.act, 2, 'ride activity stored');
   assert.strictEqual(ride.cad, 0, 'no wrist cadence on rides');
   assert.strictEqual(ride.splits[0].d, 5000, 'first ride split is 5 km');
@@ -634,10 +634,9 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(lg4.some(function (m) { return /token rejected \(HTTP 401\)/.test(m); }), '401 logged');
   assert(lg4.some(function (m) { return /fittrackee login FAILED \(HTTP 500\)/.test(m); }), 'login failure logged');
   assert(lg4.some(function (m) { return /fittrackee login ok/.test(m); }), 'earlier login success logged');
-  assert(lg4.some(function (m) {
-    return m === 'logging in as "kai@home.lan" (password "h\u2026" + "2", 7 chars)'.replace('" + "', '') ||
-           m === 'logging in as "kai@home.lan" (password "h\u20262", 7 chars)';
-  }), 'login attempts name the email, fingerprint and length');
+  assert(lg4.some(function (m) { return m === 'logging in as "kai@home.lan"'; }), 'login names the email');
+  assert(!lg4.some(function (m) { return /password "/.test(m) || /\d+ chars\)/.test(m) || m.indexOf('hunter2') >= 0; }),
+         'login never prints the password or its length');
 
   /* a trailing space in the password is invisible in the form but not in the log */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
@@ -652,8 +651,8 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var lg5 = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
   assert(lg5.some(function (m) { return /password has leading\/trailing whitespace/.test(m); }),
          'sneaky whitespace called out');
-  assert(lg5.some(function (m) { return /\(password "h\u2026 ", 8 chars\)/.test(m); }),
-         'fingerprint exposes the trailing space and the extra character');
+  assert(!lg5.some(function (m) { return /password "/.test(m) || /\d+ chars\)/.test(m) || m.indexOf('hunter2') >= 0; }),
+         'the password itself is never written to the log');
 
   console.log('scenario 4 (walk + ride modes, fittrackee credential flow) OK');
 })();
@@ -767,9 +766,9 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     assert(lg.some(function (m) {
       return m.indexOf('server said: "invalid credentials"') >= 0;
     }), name + ': server message logged');
-    assert(lg.some(function (m) {
-      return m.indexOf('(password "p\u2026 ", 10 chars)') >= 0;
-    }), name + ': fingerprint shows first/last char + length');
+    assert(!lg.some(function (m) {
+      return m.indexOf(NASTY) >= 0 || /\d+ chars\)/.test(m) || /password "/.test(m);
+    }), name + ': hostile password never reaches the log');
   });
 
   console.log('scenario 6 (transport robustness, hostile passwords) OK');
@@ -810,7 +809,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.flushTimers();
   assert.strictEqual(W.xhrs.length, 0, 'scheduled upload was cancelled');
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
-  assert(lg.some(function (m) { return /^discarded "\d{4}-\d{2}-\d{2}_run/.test(m); }), 'discard logged');
+  assert(lg.some(function (m) { return /^discarded "\d{4}-\d{2}-\d{2}_\d{4}_run/.test(m); }), 'discard logged');
 
   /* discard while the upload is already in flight: result is ignored */
   quickRun(1750601000);
@@ -949,8 +948,8 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     act: 'cfg', cfg: { auto: 0, preset: 'custom', url: '', auth: '', key: '', name: '' } }) });
   W.fire('webviewclosed', { response: enc({ act: 'retype', idx: 0, to: 1 }) });
   var r2 = JSON.parse(W.store['runlog.runs'])[0];
-  assert.strictEqual(r2.name, date + '_walk',
-                     'blank template -> new default %Y-%m-%d_{activity}, regenerated for walk: ' + r2.name);
+  assert(/^\d{4}-\d{2}-\d{2}_\d{4}_walk$/.test(r2.name),
+                     'blank template -> new time-bearing default, regenerated for walk: ' + r2.name);
 
   // unknown tokens are left untouched
   W.fire('webviewclosed', { response: enc({
@@ -1169,6 +1168,61 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(lo >= 140 && hi <= 175, 'cadence stays near 156 despite BLE jitter: ' + lo + '..' + hi);
   assert(hi - lo <= 30, 'no 2x/0.5x cadence spikes (old code would span ~111..260): range ' + (hi - lo));
   console.log('scenario 15 (cadence jitter robustness) OK');
+})();
+
+/* Scenario 16: honest saves (#4). A stop with no usable GPS and no meaningful
+ * time reports NOSAVE — never a fake "RUN SAVED"; a no-GPS stop with real
+ * elapsed time is kept as a treadmill run instead of vanishing. */
+(function scenario16() {
+  var W = makeWorld();
+  W.boot();
+  W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 1, SPLITP: 1 } });
+
+  // (a) start then immediately stop: no fixes, no time
+  var t0 = 1750300000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  assert(lastWith(W, 'NOSAVE'), 'empty stop reports NOSAVE');
+  assert(!lastWith(W, 'SAVED'), 'empty stop does NOT claim SAVED');
+  assert(!W.store['runlog.runs'] || JSON.parse(W.store['runlog.runs']).length === 0, 'nothing stored for an empty stop');
+
+  // (b) start, no GPS, but 15 min of elapsed time + steps -> a stored treadmill run
+  var t1 = 1750301000;
+  W.clockMs = t1 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  W.fire('appmessage', { payload: { STEPS: 1800 } });   // steps arrive, but no GPS fixes ever do
+  W.clockMs = (t1 + 900) * 1000;                        // 15 minutes later
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var runs = JSON.parse(W.store['runlog.runs']);
+  assert.strictEqual(runs.length, 1, 'treadmill run stored');
+  assert.strictEqual(runs[0].noGps, 1, 'flagged as a no-GPS run');
+  assert.strictEqual(runs[0].dist, 0, 'no GPS distance');
+  assert(runs[0].dur >= 890 && runs[0].dur <= 910, 'duration comes from elapsed time: ' + runs[0].dur);
+  assert(lastWith(W, 'SAVED'), 'treadmill run reports SAVED honestly');
+  console.log('scenario 16 (honest no-GPS save / NOSAVE) OK');
+})();
+
+/* Scenario 17: steps taken while paused must not inflate the total or cadence (#23). */
+(function scenario17() {
+  var W = makeWorld();
+  W.boot();
+  W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 0, SPLITP: 1 } });
+  var t0 = 1750400000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85), i;
+  for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: i * 13 } }); }  // 78 moving steps
+  W.fire('appmessage', { payload: { CMD: 2 } });                       // pause
+  for (i = 1; i <= 6; i++) { W.clockMs += 5000; W.fire('appmessage', { payload: { STEPS: 78 + i * 20 } }); }  // +120 while paused
+  W.fire('appmessage', { payload: { CMD: 3 } });                       // resume
+  for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: 198 + i * 13 } }); }  // 78 more moving steps
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var r = JSON.parse(W.store['runlog.runs'])[0];
+  assert(r.steps >= 150 && r.steps <= 165, 'paused steps excluded (want ~156 moving, not 276): ' + r.steps);
+  console.log('scenario 17 (paused steps excluded) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');
