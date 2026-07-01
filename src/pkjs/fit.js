@@ -41,6 +41,7 @@ function rlDef(a, local, global, fields) {
 function rlData(a, local) { a.push(local & 0x0F); }
 
 function rlFitBuild(run) {
+  if (!run || !run.pts || run.pts.length < 1) return null;   // defensive: nothing to export
   var pts = run.pts, act = run.act || 0, i;
   var sport = [1, 11, 2][act];          // FIT sport: run / walk / cycle
   var t0 = pts[0][0], tEnd = pts[pts.length - 1][0];

@@ -24,6 +24,7 @@ function rlTcxCum(pts) {
 }
 
 function rlTcxBuild(run) {
+  if (!run || !run.pts || run.pts.length < 1) return null;   // defensive: nothing to export
   var pts = run.pts, act = run.act || 0;
   var sport = ['Running', 'Other', 'Biking'][act];   // TCX has no "Walking"
   var cum = rlTcxCum(pts);

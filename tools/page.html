@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src *; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://basemaps.cartocdn.com https://tile.openstreetmap.org data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>RunLog</title>
 <style>
   body{margin:0;padding:18px 14px 40px;background:#0f1419;color:#e8edf2;
@@ -235,6 +235,7 @@ function paceOrSpeed(r, skm){          // rides read in km/h (mph), the rest in 
 /* ---------- GPX ---------- */
 function iso(t){ return new Date(t*1000).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
 function gpx(r){
+  if (!r.pts || !r.pts.length) return "";   // defensive: no track to export
   var o = ['<?xml version="1.0" encoding="UTF-8"?>\n',
     '<gpx version="1.1" creator="RunLog for Pebble" ',
     'xmlns="http://www.topografix.com/GPX/1/1" ',
@@ -384,6 +385,7 @@ function hav(a, b){
   return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
 }
 function series(r){
+  if (!r.pts || !r.pts.length) return;   // defensive: no points to chart
   var xs = [0], rawSpd = [null], hr = [r.pts[0][4] || null], ele = [r.pts[0][3] === '' ? null : r.pts[0][3]];
   var brk = [false], cum = 0;
   for (var i = 1; i < r.pts.length; i++) {
@@ -489,6 +491,7 @@ function ll2w(lat, lon, z){            // world pixel coords at zoom z
            y: (1 - Math.log(Math.tan(la) + 1/Math.cos(la)) / Math.PI) / 2 * n };
 }
 function initMap(r){
+  if (!r.pts || !r.pts.length) { var mp=$("dmap"); if(mp) mp.innerHTML="<div class='nomap'>No route recorded</div>"; return; }
   var mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180, i;
   for (i = 0; i < r.pts.length; i++) {
     var p = r.pts[i];

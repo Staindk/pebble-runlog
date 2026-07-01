@@ -6,6 +6,7 @@ build/
 node_modules/
 .pebble-cache/
 .waf*
+.lock-waf*
 
 # OS / editor cruft
 .DS_Store

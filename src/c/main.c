@@ -81,6 +81,8 @@ static int s_dist_m = 0;
 static int s_pace_s = 0;   // seconds per km, 0 = n/a
 static int s_steps = 0;
 static HealthValue s_steps_at_start = 0;
+static int s_steps_paused = 0;      // steps taken during paused stretches — excluded from the activity total
+static int s_steps_gross_last = 0;  // last gross (since-start) reading, to measure per-refresh deltas
 static bool s_have_step_base = false;
 
 static char s_time_buf[16], s_dist_buf[12], s_pace_buf[12];
@@ -253,6 +255,11 @@ static void prv_update_clock(void) {
 // is what's shown and what's pushed to the phone.
 static void prv_sample_hr(void) {
 #if defined(PBL_HEALTH)
+  time_t nowt = time(NULL);
+  if (!(health_service_metric_accessible(HealthMetricHeartRateBPM, nowt, nowt)
+        & HealthServiceAccessibilityMaskAvailable)) {
+    return;   // HR unsupported / permission denied / unavailable — hold the last shown value
+  }
   int v = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
   if (v > 0) {
     s_hr_ring[s_hr_ring_i] = v;
@@ -271,11 +278,19 @@ static void prv_sample_hr(void) {
 static void prv_refresh_steps(void) {
 #if defined(PBL_HEALTH)
   HealthValue today = health_service_sum_today(HealthMetricStepCount);
-  if (!s_have_step_base || today < s_steps_at_start) {  // midnight rollover guard
-    s_steps_at_start = today - s_steps;
+  if (!s_have_step_base || today < s_steps_at_start) {   // start / midnight rollover
+    s_steps_at_start = today - s_steps - s_steps_paused;  // keep the net count continuous across a rollover
+    s_steps_gross_last = s_steps + s_steps_paused;
     s_have_step_base = true;
   }
-  s_steps = (int)(today - s_steps_at_start);
+  int gross = (int)(today - s_steps_at_start);           // steps since start, including any taken while paused
+  // While paused (manual OR auto — both set STATE_PAUSED), fold the increment
+  // into the paused offset so the net total stays frozen. The watch only *sends*
+  // samples while RUNNING, so the phone receives this already-corrected count.
+  if (s_state == STATE_PAUSED && gross > s_steps_gross_last)
+    s_steps_paused += gross - s_steps_gross_last;
+  s_steps_gross_last = gross;
+  s_steps = gross - s_steps_paused;
   prv_update_steps();
 #endif
 }
@@ -346,14 +361,19 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   bool track_changed = false;
 
   if (dict_find(iter, MESSAGE_KEY_NOSAVE)) {
-    // The phone had nothing to store (no GPS and no meaningful time, or storage
-    // was full). Don't sit forever on "SAVING..." or imply a save happened.
+    // The phone had nothing to store (no usable GPS, or storage was full). Reset
+    // to a clean READY screen and say NOT SAVED — don't hang on "SAVING..." and
+    // don't leave the attempted run's numbers on screen.
     s_state = STATE_READY;
+    s_autopaused = false;
     prv_set_hr_fast(false);
-    vibes_double_pulse();
-    prv_flash("NOT SAVED");
+    s_elapsed_s = 0; s_dist_m = 0; s_pace_s = 0; s_steps = 0; s_hr = 0;
+    s_hr_ring_n = 0; s_hr_ring_i = 0; s_steps_paused = 0;
+    prv_update_time(); prv_update_dist(); prv_update_pace(); prv_update_steps(); prv_update_hr();
     prv_update_actionbar();
     prv_set_state_text();
+    vibes_double_pulse();
+    prv_flash("NOT SAVED");     // flash LAST, so prv_set_state_text can't overwrite it
     return;
   }
 
@@ -496,6 +516,7 @@ static void prv_select_click(ClickRecognizerRef rec, void *ctx) {
       s_autopaused = false;
       s_elapsed_s = 0; s_dist_m = 0; s_pace_s = 0; s_steps = 0;
       s_hr = 0; s_hr_ring_n = 0; s_hr_ring_i = 0;   // don't carry the previous run's HR into this one
+      s_steps_paused = 0;                            // and don't carry a paused-step offset
       s_have_step_base = false;
       g_stats.trk_n = 0; g_stats.trk_span_m = 0; g_stats.pace_n = 0; g_stats.hr_n = 0;
       prv_update_time(); prv_update_dist(); prv_update_pace(); prv_update_steps();

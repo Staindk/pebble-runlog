@@ -1179,7 +1179,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('ready', {});
   W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 1, SPLITP: 1 } });
 
-  // (a) start then immediately stop: no fixes, no time
+  // (a) start then immediately stop: no fixes, no time -> NOSAVE, nothing stored
   var t0 = 1750300000;
   W.clockMs = t0 * 1000;
   W.fire('appmessage', { payload: { CMD: 1 } });
@@ -1188,24 +1188,35 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(!lastWith(W, 'SAVED'), 'empty stop does NOT claim SAVED');
   assert(!W.store['runlog.runs'] || JSON.parse(W.store['runlog.runs']).length === 0, 'nothing stored for an empty stop');
 
-  // (b) start, no GPS, but 15 min of elapsed time + steps -> a stored treadmill run
+  // (b) no GPS the whole session, even with elapsed time + steps -> still NOSAVE
+  // and nothing stored. A run with no route (hence no distance, pace, HR series
+  // or map) is not something we keep or pretend to have saved. This is the honest
+  // replacement for the earlier attempt to store empty-track "treadmill" runs,
+  // which broke the detail page, all three exporters and upload.
+  W.msgs.length = 0;                                    // isolate this leg's messages
   var t1 = 1750301000;
   W.clockMs = t1 * 1000;
   W.fire('appmessage', { payload: { CMD: 1 } });
   W.fire('appmessage', { payload: { STEPS: 1800 } });   // steps arrive, but no GPS fixes ever do
   W.clockMs = (t1 + 900) * 1000;                        // 15 minutes later
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var runs = JSON.parse(W.store['runlog.runs']);
-  assert.strictEqual(runs.length, 1, 'treadmill run stored');
-  assert.strictEqual(runs[0].noGps, 1, 'flagged as a no-GPS run');
-  assert.strictEqual(runs[0].dist, 0, 'no GPS distance');
-  assert(runs[0].dur >= 890 && runs[0].dur <= 910, 'duration comes from elapsed time: ' + runs[0].dur);
-  assert(lastWith(W, 'SAVED'), 'treadmill run reports SAVED honestly');
-  console.log('scenario 16 (honest no-GPS save / NOSAVE) OK');
+  assert(lastWith(W, 'NOSAVE'), 'no-GPS stop reports NOSAVE even with elapsed time');
+  assert(!lastWith(W, 'SAVED'), 'no-GPS stop does NOT claim SAVED');
+  assert(!W.store['runlog.runs'] || JSON.parse(W.store['runlog.runs']).length === 0, 'no-GPS run is not stored');
+  console.log('scenario 16 (honest NOSAVE; no-GPS never stored) OK');
 })();
 
 /* Scenario 17: steps taken while paused must not inflate the total or cadence (#23). */
 (function scenario17() {
+  // The paused-step EXCLUSION lives on the watch now (src/c/main.c,
+  // prv_refresh_steps freezes the count while STATE_PAUSED), and the watch only
+  // *sends* samples while RUNNING — never during a pause. This test covers the
+  // PHONE's half of that contract with the messages a real watch would actually
+  // send: nothing during the pause, and a resumed count that already excludes the
+  // paused steps. It asserts the phone takes that count at face value (no phantom
+  // paused steps re-added — the old, wrong behaviour) and doesn't carry a stale
+  // pre-pause sample across the gap. The watch-side freeze itself is verified by
+  // compilation + on-device, not in this JS harness.
   var W = makeWorld();
   W.boot();
   W.fire('ready', {});
@@ -1216,13 +1227,61 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var w = makeWalker(W, t0, -31.95, 115.85), i;
   for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: i * 13 } }); }  // 78 moving steps
   W.fire('appmessage', { payload: { CMD: 2 } });                       // pause
-  for (i = 1; i <= 6; i++) { W.clockMs += 5000; W.fire('appmessage', { payload: { STEPS: 78 + i * 20 } }); }  // +120 while paused
+  W.clockMs += 60000;                                                  // a minute passes; the watch sends NOTHING while paused
   W.fire('appmessage', { payload: { CMD: 3 } });                       // resume
-  for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: 198 + i * 13 } }); }  // 78 more moving steps
+  // The watch's net count resumes from 78 — the paused steps were already
+  // excluded on the watch, so it does NOT jump forward by them.
+  for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: 78 + i * 13 } }); }  // 78 more moving steps
   W.fire('appmessage', { payload: { CMD: 4 } });
   var r = JSON.parse(W.store['runlog.runs'])[0];
-  assert(r.steps >= 150 && r.steps <= 165, 'paused steps excluded (want ~156 moving, not 276): ' + r.steps);
-  console.log('scenario 17 (paused steps excluded) OK');
+  assert.strictEqual(r.steps, 156, 'phone uses the watch net step count as-is (not 276): ' + r.steps);
+  assert(r.cad === 0 || (r.cad > 0 && r.cad <= 260), 'stored cadence is sane, no pause-gap spike: ' + r.cad);
+  console.log('scenario 17 (phone trusts watch net steps; no double-count) OK');
+})();
+
+(function scenario18() {
+  // Restart recovery (#3) and command idempotency (#4), end to end.
+  var W = makeWorld();
+  W.boot();
+  W.fire('ready', {});
+  W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 0, SPLITP: 1 } });
+  var t0 = 1750500000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85), i;
+  for (i = 1; i <= 15; i++) w.step(3.0, 5, 30);       // 15 clean fixes -> a checkpoint is written
+  assert(W.store['runlog.inprogress'], 'checkpoint persisted mid-run');
+  var cp = JSON.parse(W.store['runlog.inprogress']);
+  assert(cp.pts && cp.pts.length >= 14, 'checkpoint holds the recorded points: ' + (cp.pts && cp.pts.length));
+  assert(cp.paused === 0 && cp.autopaused === 0, 'checkpoint records pause state');
+
+  // Simulate a phone-JS restart: fresh module + world, SAME persistent storage,
+  // clock advanced to just after the checkpoint so the run is resumed (not recovered).
+  var store = W.store;
+  var W2 = makeWorld();
+  W2.store = store;
+  W2.boot();
+  W2.clockMs = (t0 + 75) * 1000;
+  W2.fire('ready', {});
+  assert(W2.geoCb, 'GPS re-armed on resume');
+  assert(!lastWith(W2, 'SAVED'), 'a fresh restart resumes; it does not finalize+save');
+  assert(W2.store['runlog.inprogress'], 'checkpoint kept while the resumed run continues');
+
+  // The first post-restart fix is ~6 km from the pre-restart point (GPS reacquired
+  // elsewhere). That gap must NOT be added to distance — only real movement after.
+  var w2 = makeWalker(W2, t0 + 80, -31.99, 115.90);
+  for (i = 1; i <= 10; i++) w2.step(3.0, 5, 30);
+  W2.fire('appmessage', { payload: { CMD: 4 } });     // stop
+  var r = JSON.parse(W2.store['runlog.runs'])[0];
+  assert(r.dist < 2000, 'restart gap excluded from distance (want a few hundred m, not ~6 km): ' + r.dist);
+  assert(r.dist > 100, 'real distance still accumulated across the restart: ' + r.dist);
+
+  // A duplicate STOP after the run is over is silent — it must not emit NOSAVE
+  // (which would wipe the SAVED the watch just showed) or re-save.
+  W2.msgs.length = 0;
+  W2.fire('appmessage', { payload: { CMD: 4 } });
+  assert(!lastWith(W2, 'NOSAVE'), 'duplicate stop is silent (no NOSAVE over a prior SAVED)');
+  assert(!lastWith(W2, 'SAVED'), 'duplicate stop does not re-save');
+  console.log('scenario 18 (restart resume, no gap distance, idempotent stop) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');

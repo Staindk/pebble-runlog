@@ -17,6 +17,7 @@ function esc(s) {
 }
 
 function build(run) {
+  if (!run || !run.pts || run.pts.length < 1) return null;   // defensive: nothing to export
   var o = [];
   o.push('<?xml version="1.0" encoding="UTF-8"?>\n');
   o.push('<gpx version="1.1" creator="RunLog for Pebble" ' +

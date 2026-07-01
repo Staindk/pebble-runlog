@@ -20,9 +20,9 @@ static TextLayer *s_title, *s_dist, *s_upload, *s_hint, *s_banner;
 static int s_menu = 0;     // 0 scroll, 1 menu, 2 confirm-discard, 3 confirm-upload
 static int s_off = 0, s_content_h = 0, s_scr_h = 0;   // manual scrolling
 
-static char s_dist_buf[20], s_upload_buf[26];
+static char s_dist_buf[20], s_upload_buf[32];
 static char s_v[6][16];                       // stat grid values
-static char s_vo2_buf[20];                    // VO2max cell (runs only)
+static char s_vo2_buf[24];                    // VO2max cell (runs only)
 static char s_pace_rng[24], s_hr_rng[16];     // graph caption ranges
 static int s_upload_state = -1;               // -1 hidden, 0 uploading, 1 ok, 2 failed
 static int s_upload_err = 0;                  // HTTP status of a failure, 0 = network
@@ -117,7 +117,7 @@ static void prv_track_update(Layer *layer, GContext *ctx) {
 
   // span label (bottom-left) so the sketch has a sense of scale
   if (g_stats.trk_span_m > 0) {
-    char sb[12];
+    char sb[24];
     if (g_set.miles) {
       int ft = (int)((int64_t)g_stats.trk_span_m * 3281 / 1000);
       if (ft >= 528) snprintf(sb, sizeof(sb), "%d.%d mi", ft / 5280, (ft * 10 / 5280) % 10);

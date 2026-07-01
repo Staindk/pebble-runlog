@@ -21,6 +21,7 @@ var fit = require('./fit');
 
 /* Choose the export body/filename/content-type for the selected format. */
 function exportRun(run, fmt) {
+  if (!run || !run.pts || run.pts.length < 1) return null;   // nothing to export (defensive: stored runs always have >=2 GPS points)
   fmt = (fmt === 'tcx' || fmt === 'fit') ? fmt : 'gpx';
   var base = run.name.replace(/[^\w.\-]+/g, '_');
   if (fmt === 'tcx') return { fname: base + '.tcx', contentType: 'application/vnd.garmin.tcx+xml', body: tcx.build(run), binary: false };
@@ -95,7 +96,7 @@ var ST = {
   prevFix: null, lastFixAt: 0, slowN: 0, fastN: 0,
   eleSm: null, eleBase: null, egain: 0,
   hr: 0, hrAt: 0, cad: 0, cadAt: 0, lastSteps: null, stepHist: [], steps: 0,
-  stepAdj: 0, stepPrevRaw: null,
+  stepAdj: 0, stepPrevRaw: null, lastRaw: null,
   startAt: 0, splitN: 0, segFlag: 0,
   watchId: null, geoWatchdog: null, sending: false, queue: [], lastStatT: 0,
   lastOk: -1, lastAccSent: -1, lastAccAt: 0,
@@ -230,6 +231,17 @@ function onFix(pos) {
   if (t < ST.lastT) t = ST.lastT;
   ST.lastT = t;
 
+  var rawFix = { t: tp, lat: +c.latitude.toFixed(6), lon: +c.longitude.toFixed(6) };
+
+  // Outlier gate on RAW coordinates, BEFORE the filter, auto-pause or prevFix see
+  // the fix. Only closely-spaced fixes are gated (a real GPS stream); a large time
+  // gap (after a pause or a restart) can legitimately jump far and starts a fresh
+  // segment, so it's never treated as an outlier.
+  if (ST.recording && !ST.paused && !ST.autopaused && ST.lastRaw) {
+    var gdt = tp - ST.lastRaw.t;
+    if (gdt > 0 && gdt < 30 && haversine(ST.lastRaw, rawFix) / gdt > C.MAX_SPEED[ST.act || 0]) return;
+  }
+
   if (!ST.kf) ST.kf = gps.make();
   var sm = ST.kf.update(c.latitude, c.longitude, c.accuracy, tp);   // Kalman-smoothed (real dt: no zero-delta velocity spikes)
   var fix = {
@@ -243,17 +255,15 @@ function onFix(pos) {
   // Auto-pause keys off RAW GPS speed: the Kalman filter adds velocity inertia
   // that lags a sudden stop, which would make pause/resume sluggish. Distance,
   // track and splits use the smoothed fix; only stop/resume detection sees raw.
-  var rawFix = { t: tp, lat: +c.latitude.toFixed(6), lon: +c.longitude.toFixed(6) };
-
   if (ST.recording && !ST.paused) autoPauseCheck(rawFix);
   var accumulating = ST.recording && !ST.paused && !ST.autopaused;
   ST.prevFix = rawFix;
+  if (accumulating) ST.lastRaw = rawFix;   // reference the next outlier check compares against
   if (!accumulating) return;
 
   if (ST.last) {
     var dt = fix.t - ST.last.t;
     var dm = haversine(ST.last, fix);
-    if (dt > 0 && dm / dt > C.MAX_SPEED[ST.act || 0]) return;  // physically impossible step: drop the outlier
     if (dt < C.MIN_GAP_S && dm < 15) return;   // throttle dense fixes
     if (dm < C.MIN_MOVE_M && dt < 15) return;  // jitter while still
     ST.dist += dm;
@@ -354,6 +364,7 @@ function avgPace() {
 /* ------------------ Run lifecycle ------------------ */
 function startRun() {
   if (ST.recording) return;      // idempotent: a duplicate START must not reset a live run
+  ST.lastRaw = null;
   ST.recording = true; ST.paused = false; ST.autopaused = false;
   ST.pts = []; ST.dist = 0; ST.movS = 0;
   ST.last = null; ST.startAt = now(); ST.splitN = 0; ST.segFlag = 0;
@@ -373,21 +384,22 @@ function startRun() {
 }
 function pauseRun() {
   if (!ST.recording || ST.paused) return;   // idempotent
+  ST.lastRaw = null;   // first fix after resume starts a fresh segment (not gated)
   ST.paused = true; ST.autopaused = false;
   ST.slowN = 0; ST.fastN = 0;
   ST.stepHist = [];              // a pre-pause sample must not seed the first post-pause cadence
   persistInProgress();
 }
 function resumeRun() {
-  if (!ST.recording) return;
+  if (!ST.recording || (!ST.paused && !ST.autopaused)) return;   // idempotent: nothing to resume if not paused
   ST.paused = false; ST.autopaused = false;
   ST.slowN = 0; ST.fastN = 0;
-  ST.last = null; ST.segFlag = 1;
+  ST.last = null; ST.lastRaw = null; ST.segFlag = 1;
   ST.stepHist = [];
 }
 
 function stopRun() {
-  if (!ST.recording) { send({ NOSAVE: 1 }, true); return; }   // idempotent: STOP with nothing live can't have saved anything
+  if (!ST.recording) return;     // idempotent: a duplicate STOP does nothing (never send NOSAVE over a prior SAVED)
   ST.recording = false; ST.paused = false; ST.autopaused = false;
   stopGeo();                     // recording over — release GPS to save battery
   var run = finalizeRun({
@@ -397,9 +409,8 @@ function stopRun() {
     mi: WSET.mi ? 1 : 0, pts: compactPts(ST.pts)
   }, '');
   if (run) {
-    var ok = saveRun(run);       // saveRun now reports whether the write actually succeeded
-    rlog((ok ? 'saved' : 'SAVE FAILED') + ' "' + run.name + '" (' +
-         Math.round(run.dist) + ' m' + (run.noGps ? ', no GPS' : '') + ')');
+    var ok = saveRun(run);       // saveRun reports whether the write actually succeeded
+    rlog((ok ? 'saved' : 'SAVE FAILED') + ' "' + run.name + '" (' + Math.round(run.dist) + ' m)');
     if (ok) {
       send({ SAVED: 1, DIST: run.dist, AVGP: run.avgp, AVGHR: run.avgHr,
              MAXHR: run.maxHr, MOVS: run.mov, EGAIN: run.egain, VO2: run.vo2max || 0 }, true);
@@ -407,13 +418,13 @@ function stopRun() {
       sendGraphs(run.pts);
       ST.lastSaved = run.start;
       try { openRunLogPage(run.start); } catch (e1) {}
+      try { localStorage.removeItem('runlog.inprogress'); } catch (e0) {}
     } else {
-      send({ NOSAVE: 1 }, true); // storage full and unrecoverable — don't claim it saved
+      send({ NOSAVE: 1 }, true); // storage full and unrecoverable — don't claim it saved, and KEEP the checkpoint
     }
-    try { localStorage.removeItem('runlog.inprogress'); } catch (e0) {}
   } else {
-    /* no GPS and no meaningful time (a stray start/stop): nothing to save,
-     * and we say so rather than flashing a bogus "RUN SAVED". */
+    /* no usable GPS (a stray start/stop, or a treadmill session): nothing to
+     * store, and we say so rather than flashing a bogus "RUN SAVED". */
     send({ NOSAVE: 1 }, true);
     try { localStorage.removeItem('runlog.inprogress'); } catch (e2) {}
   }
@@ -439,7 +450,7 @@ function computeSplits(cpts, mi, mult) {
     var a = cpts[i - 1], b = cpts[i];
     if (b[5]) continue;                       // pause boundary: skip the gap
     var dm = haversine({ lat: a[1], lon: a[2] }, { lat: b[1], lon: b[2] });
-    var dt = Math.min(Math.max(b[0] - a[0], 0), 10);
+    var dt = Math.min(Math.max(b[0] - a[0], 0), C.MOV_CAP_S);   // same cap as moving-time accrual, so split pace and avg pace agree
     while (dm > 0 && sd + dm >= U) {
       var need = U - sd;
       var f = need / dm;
@@ -550,9 +561,7 @@ function estimateVo2max(pts, act, hrMax, restHr) {
 
 function finalizeRun(d, suffix) {
   var cpts = d.pts || [];
-  var hasGps = cpts.length >= 2;
-  var elapsed = Math.round(d.elapsed || 0);
-  if (!hasGps && elapsed < 10) return null;   // no route and no meaningful time: nothing to record
+  if (cpts.length < 2) return null;   // no usable GPS -> nothing to record; the caller reports NOSAVE
   var sum = 0, n = 0, max = 0, i;
   for (i = 0; i < cpts.length; i++) {
     var hr = cpts[i][4];
@@ -560,9 +569,10 @@ function finalizeRun(d, suffix) {
   }
   var act = (d.act >= 0 && d.act <= 2) ? d.act : 0;
   if (act === 2) { for (i = 0; i < cpts.length; i++) cpts[i][6] = 0; }   // wrist cadence is meaningless on a bike — never export it
-  var mov = hasGps ? Math.round(d.movS || 0) : elapsed;   // no GPS (treadmill): the whole elapsed time is "moving"
-  var dist = hasGps ? Math.round(d.dist) : 0;
-  var dur = hasGps ? (cpts[cpts.length - 1][0] - cpts[0][0]) : elapsed;
+  var mov = Math.round(d.movS || 0);
+  var dist = Math.round(d.dist);
+  var span = cpts[cpts.length - 1][0] - cpts[0][0];
+  var dur = (d.elapsed && d.elapsed >= span) ? Math.round(d.elapsed) : span;   // true wall-clock elapsed (incl. acquisition/trailing), never less than the GPS span
   var name = nameFromTemplate(loadCfg().name, act, d.startAt) + suffix;
   return {
     name: name, start: d.startAt,
@@ -572,16 +582,15 @@ function finalizeRun(d, suffix) {
     avgp: (mov >= 30 && dist >= 50) ? Math.round(mov / (dist / 1000)) : 0,
     avgHr: n ? Math.round(sum / n) : 0,
     maxHr: max,
-    vo2max: hasGps ? estimateVo2max(cpts, act, WSET.maxHr, WSET.restHr) : 0,
+    vo2max: estimateVo2max(cpts, act, WSET.maxHr, WSET.restHr),
     egain: Math.round(d.egain || 0),
     cad: (act !== 2 && mov >= 30 && d.steps > 0)
            ? Math.min(260, Math.round(d.steps * 60 / mov)) : 0,
     steps: d.steps || 0,
     mi: d.mi ? 1 : 0,
     act: act,
-    noGps: hasGps ? 0 : 1,
     sid: d.sid || 0,
-    splits: hasGps ? computeSplits(cpts, d.mi, C.SPLIT_MULT[act]) : [],
+    splits: computeSplits(cpts, d.mi, C.SPLIT_MULT[act]),
     up: 0,
     pts: cpts
   };
@@ -617,8 +626,11 @@ function sendTrack(cpts) {
     bytes.push(Math.max(0, Math.min(200, px)), Math.max(0, Math.min(200, py)));
   }
   send({ TRACK: bytes }, true);
-  // longest axis of the route in real-world metres -> the watch scale label
-  var spanM = Math.round(span * 111320 * (spanX >= spanY ? cosM : 1));
+  // longest axis of the route in real-world metres -> the watch scale label.
+  // x is already lon*cos(lat), so a span in x maps to metres by *111320 just
+  // like a latitude span does — applying cos(lat) again here under-counted
+  // east-west routes (~15% at Perth, 50% at 60 deg).
+  var spanM = Math.round(span * 111320);
   send({ TSPAN: spanM }, true);
 }
 
@@ -685,10 +697,16 @@ function sendGraphs(cpts) {
 
 /* ------------------ Storage ------------------ */
 function loadRuns() {
+  var raw = null;
   try {
-    var raw = localStorage.getItem('runlog.runs');
+    raw = localStorage.getItem('runlog.runs');
     return raw ? JSON.parse(raw) : [];
-  } catch (e) { return []; }
+  } catch (e) {
+    // Don't silently discard a corrupt store and let the next save overwrite it —
+    // stash the raw bytes so nothing is lost and it can be inspected/recovered.
+    try { if (raw) { localStorage.setItem('runlog.runs.corrupt', raw); rlog('runs store was corrupt; backed up to runlog.runs.corrupt'); } } catch (e2) {}
+    return [];
+  }
 }
 function storeRuns(runs) {
   try { localStorage.setItem('runlog.runs', JSON.stringify(runs)); updateGlance(); return true; }
@@ -748,6 +766,7 @@ function persistInProgress() {
     localStorage.setItem('runlog.inprogress', JSON.stringify({
       startAt: ST.startAt, dist: ST.dist, movS: ST.movS,
       egain: ST.egain, steps: ST.steps, act: ST.act, sid: ST.sid, at: now(),
+      paused: ST.paused ? 1 : 0, autopaused: ST.autopaused ? 1 : 0,
       mi: WSET.mi ? 1 : 0, pts: compactPts(ST.pts)
     }));
   } catch (e) {}
@@ -760,7 +779,9 @@ function persistInProgress() {
  * were down, so we save what we have — but only once: the session id guards
  * against a second recovery re-saving a run that already made it to storage. */
 function restoreFromInprogress(ip) {
-  ST.recording = true; ST.paused = false; ST.autopaused = false;
+  ST.recording = true;
+  ST.paused = !!ip.paused;                     // a run paused when the app died stays paused
+  ST.autopaused = !!ip.autopaused;
   ST.startAt = ip.startAt; ST.dist = ip.dist || 0; ST.movS = ip.movS || 0;
   ST.egain = ip.egain || 0; ST.steps = ip.steps || 0;
   ST.act = (ip.act >= 0 && ip.act <= 2) ? ip.act : 0;
@@ -769,13 +790,15 @@ function restoreFromInprogress(ip) {
   ST.pts = (ip.pts || []).map(function (p) {
     return { t: p[0], lat: p[1], lon: p[2], ele: (p[3] === '' ? null : p[3]), hr: p[4], seg: p[5], cad: p[6] };
   });
-  ST.last = ST.pts.length ? ST.pts[ST.pts.length - 1] : null;
-  ST.lastT = ST.last ? ST.last.t : 0;
+  // Treat the restart as a segment boundary: the next fix starts a fresh segment
+  // and must NOT have the gap back to the pre-restart point added to distance.
+  ST.last = null; ST.lastRaw = null; ST.segFlag = 1;
+  var lastPt = ST.pts.length ? ST.pts[ST.pts.length - 1] : null;
+  ST.lastT = lastPt ? lastPt.t : 0;
   ST.lastTp = ST.lastT;
-  ST.eleSm = (ST.last && ST.last.ele !== null && ST.last.ele !== undefined) ? ST.last.ele : null;
+  ST.eleSm = (lastPt && lastPt.ele !== null && lastPt.ele !== undefined) ? lastPt.ele : null;
   ST.eleBase = ST.eleSm;
   ST.kf = gps.make();                 // fresh filter; stored positions are already smoothed
-  ST.segFlag = 1;                     // the gap over the restart is a segment boundary
   ST.stepAdj = 0; ST.stepPrevRaw = null; ST.stepHist = [];
   ST.splitN = Math.floor(ST.dist / (unitM(WSET.mi) * C.SPLIT_MULT[ST.act]));
   ST.lastStatT = 0;
@@ -792,14 +815,22 @@ function resumeOrRecover() {
     rlog('resumed in-progress run after restart (' + (ip.pts.length) + ' pts)');
     return true;                      // still recording — caller will (re)start GPS
   }
-  if (ip.pts && ip.pts.length > 10) {
-    var already = ip.sid && loadRuns().some(function (r) { return r.sid === ip.sid; });
-    if (!already) {
-      var run = finalizeRun(ip, ' (recovered)');
-      if (run) saveRun(run);
-    }
+  // Stale: the run ended while we were down. Save whatever is recordable (finalizeRun
+  // itself rejects < 2 points), once, and only clear the checkpoint if the save stuck —
+  // otherwise keep it so the next launch can retry rather than lose the run.
+  var done = true;
+  if (ip.sid && loadRuns().some(function (r) { return r.sid === ip.sid; })) {
+    done = true;                      // already saved on a previous recovery
+  } else {
+    var run = finalizeRun({
+      startAt: ip.startAt, dist: ip.dist, movS: ip.movS, egain: ip.egain,
+      steps: ip.steps, act: ip.act, sid: ip.sid, mi: ip.mi,
+      elapsed: (ip.at && ip.startAt) ? (ip.at - ip.startAt) / 1000 : 0,
+      pts: ip.pts
+    }, ' (recovered)');
+    done = run ? saveRun(run) : true;   // nothing recordable -> nothing to keep -> clear it
   }
-  try { localStorage.removeItem('runlog.inprogress'); } catch (e4) {}
+  if (done) { try { localStorage.removeItem('runlog.inprogress'); } catch (e4) {} }
   return false;
 }
 function recoverIfNeeded() { return resumeOrRecover(); }   // back-compat alias
@@ -1021,6 +1052,7 @@ function uploadRun(run) {
     rlog('WARNING: destination is plain HTTP — credentials and your activity travel the network unencrypted');
   }
   var ex = exportRun(run, c.fmt);
+  if (!ex) { rlog('nothing to upload (run has no GPS track)'); send({ EXPST: 3, EXPERR: 0 }, true); return; }
   var fname = ex.fname;
   var fmt = (['gpx', 'tcx', 'fit'].indexOf(c.fmt) >= 0) ? c.fmt : 'gpx';
 
@@ -1122,36 +1154,29 @@ Pebble.addEventListener('appmessage', function (e) {
   if (p.RHR !== undefined && p.RHR >= 0   && p.RHR <= 120) { WSET.restHr = p.RHR; storeWatchSet(); }
   if (p.HR !== undefined)     { ST.hr = p.HR; ST.hrAt = now(); }
   if (p.STEPS !== undefined)  {
-    var t = now(), raw = p.STEPS;
-    // The watch step counter keeps climbing while paused (you might walk around
-    // at a light). Those steps aren't part of the activity, so while paused we
-    // fold each increment into stepAdj (subtracted from the effective total)
-    // and skip the cadence window entirely; only moving steps count.
-    if (ST.recording && (ST.paused || ST.autopaused)) {
-      if (ST.stepPrevRaw !== null && raw >= ST.stepPrevRaw) ST.stepAdj = (ST.stepAdj || 0) + (raw - ST.stepPrevRaw);
-    } else {
-      var eff = raw - (ST.stepAdj || 0);
-      // Cadence is the derivative of a coarse, Bluetooth-delivered step counter.
-      // Over one ~5 s message that derivative is dominated by integer-step
-      // quantisation and BLE arrival jitter, which throw individual points to
-      // ~2x / ~0.5x the true rate (in matched high/low pairs, since the running
-      // total stays correct). Average the rate over a short trailing window, with
-      // the span snapped to the watch's deterministic 5 s send cadence, to remove
-      // the spikes without shifting the bulk value or the run average.
-      ST.stepHist = ST.stepHist || [];
-      if (ST.stepHist.length && eff < ST.stepHist[ST.stepHist.length - 1].n) ST.stepHist = [];  // counter went backwards: restart
-      ST.stepHist.push({ n: eff, at: t });
-      while (ST.stepHist.length > 2 && t - ST.stepHist[0].at > C.CAD_WINDOW_MS) ST.stepHist.shift();
-      var b0 = ST.stepHist[0], dn = eff - b0.n, dtw = t - b0.at;
-      if (dn >= 0 && dtw >= 3500) {
-        var span = Math.round(dtw / C.CAD_SAMPLE_MS) * C.CAD_SAMPLE_MS || C.CAD_SAMPLE_MS;
-        var spm = dn * 60000 / span;
-        if (spm <= 300) { ST.cad = Math.round(spm); ST.cadAt = t; }
-      }
-      ST.lastSteps = { n: eff, at: t };
-      ST.steps = eff;
+    var t = now(), n = p.STEPS;
+    // The watch already excludes steps taken while paused from this count (a
+    // paused stretch freezes it), so we take it at face value. Cadence is the
+    // derivative of a coarse, Bluetooth-delivered step counter: over one ~5 s
+    // message that derivative is dominated by integer-step quantisation and BLE
+    // arrival jitter, throwing individual points to ~2x/~0.5x the true rate (in
+    // matched high/low pairs, since the total stays correct). Average the rate
+    // over a short trailing window, snapped to the watch's 5 s send cadence, to
+    // remove the spikes without shifting the bulk value or the run average. The
+    // window is cleared across pauses (in pauseRun/resumeRun) so a pre-pause
+    // sample can't seed a bogus first post-resume cadence.
+    ST.stepHist = ST.stepHist || [];
+    if (ST.stepHist.length && n < ST.stepHist[ST.stepHist.length - 1].n) ST.stepHist = [];  // counter went backwards: restart
+    ST.stepHist.push({ n: n, at: t });
+    while (ST.stepHist.length > 2 && t - ST.stepHist[0].at > C.CAD_WINDOW_MS) ST.stepHist.shift();
+    var b0 = ST.stepHist[0], dn = n - b0.n, dtw = t - b0.at;
+    if (dn >= 0 && dtw >= 3500) {
+      var span = Math.round(dtw / C.CAD_SAMPLE_MS) * C.CAD_SAMPLE_MS || C.CAD_SAMPLE_MS;
+      var spm = dn * 60000 / span;
+      if (spm <= 300) { ST.cad = Math.round(spm); ST.cadAt = t; }
     }
-    ST.stepPrevRaw = raw;
+    ST.lastSteps = { n: n, at: t };
+    ST.steps = n;
   }
   if (p.CMD !== undefined) {
     if (p.CMD === 1) startRun();
