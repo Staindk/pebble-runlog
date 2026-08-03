@@ -1,7 +1,7 @@
 {
   "name": "runlog",
   "author": "Kai Bagley",
-  "version": "1.25.0",
+  "version": "2.0.0",
   "keywords": [
     "pebble-app"
   ],
@@ -55,7 +55,35 @@
       "MHR",
       "VO2",
       "RHR",
-      "NOSAVE"
+      "NOSAVE",
+      "PROTO",
+      "SID",
+      "SEQ",
+      "ACK",
+      "WSTATE",
+      "ACTIVE",
+      "DURS",
+      "HELLO",
+      "RESULT",
+      "STARTTS",
+      "SAMPLET",
+      "HRPK",
+      "EGLIVE",
+      "MOVLIVE",
+      "AVGHRLIVE",
+      "LAPN",
+      "LAPD",
+      "LAPT",
+      "LAPP",
+      "TGTYPE",
+      "TGLO",
+      "TGHI",
+      "TGVAL",
+      "WSAMPLES",
+      "WSACK",
+      "WSFLUSH",
+      "ROUTE",
+      "DQ"
     ],
     "resources": {
       "media": [
@@ -109,6 +137,11 @@
           "type": "bitmap",
           "name": "ICON_BIKE",
           "file": "icons/bike.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_HIKE",
+          "file": "icons/hike.png"
         },
         {
           "type": "bitmap",

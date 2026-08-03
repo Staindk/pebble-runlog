@@ -19,14 +19,25 @@ static Layer *s_bar = NULL;             // fixed right-edge action bar
 static TextLayer *s_title, *s_dist, *s_upload, *s_hint, *s_banner;
 static int s_menu = 0;     // 0 scroll, 1 menu, 2 confirm-discard, 3 confirm-upload
 static int s_off = 0, s_content_h = 0, s_scr_h = 0;   // manual scrolling
+/* The route and graphs stream in a moment after the stats. If the user has
+ * already walked away from the debrief, a late TRACK/PACEG packet must not
+ * shove it back in their face. */
+static bool s_dismissed = false;
 
-static char s_dist_buf[20], s_upload_buf[32];
+static char s_dist_buf[20], s_upload_buf[32], s_title_buf[16];
 static char s_v[6][16];                       // stat grid values
 static char s_vo2_buf[24];                    // VO2max cell (runs only)
 static char s_pace_rng[24], s_hr_rng[16];     // graph caption ranges
-static int s_upload_state = -1;               // -1 hidden, 0 uploading, 1 ok, 2 failed
+static int s_upload_state = -1;               // -1 hidden, 0 uploading, 1 ok, 2 failed, 3 no track
 static int s_upload_err = 0;                  // HTTP status of a failure, 0 = network
 static bool s_big = true;
+static int s_loaded_act = -1;                 // activity used to size the current layout
+
+/* s_win outlives a single showing (see summary_deinit), so "do we have a window"
+ * is not the same question as "is the user looking at it". */
+static bool prv_visible(void) {
+  return s_win && window_stack_contains_window(s_win);
+}
 
 static GColor prv_accent(void) { return PBL_IF_COLOR_ELSE(GColorOrange, GColorBlack); }
 static GColor prv_muted(void)  { return PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack); }
@@ -174,7 +185,7 @@ static void prv_graph(GContext *ctx, GRect r, const char *cap, const char *rng,
 static void prv_graphs_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
   int gh = b.size.h / 2;
-  const char *pcap = (g_set.mode == MODE_CYCLE)
+  const char *pcap = (g_stats.act == MODE_CYCLE)
       ? (g_set.miles ? "SPEED MPH" : "SPEED KMH")
       : (g_set.miles ? "PACE /MI" : "PACE /KM");
   prv_graph(ctx, GRect(0, 0, b.size.w, gh - 4),
@@ -198,11 +209,11 @@ static void prv_metric(GContext *ctx, GRect r, const char *cap,
 
 static void prv_stats_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
-  bool run  = (g_set.mode == MODE_RUN);     // only runs carry a VO2max estimate
+  bool run  = (g_stats.act == MODE_RUN);    // only runs carry a VO2max estimate
   int rows  = run ? 4 : 3;                  // extra full-width row for VO2max
   int row_h = b.size.h / rows;
   int col_w = b.size.w / 2;
-  bool ride = (g_set.mode == MODE_CYCLE);
+  bool ride = (g_stats.act == MODE_CYCLE);
   const char *caps[6] = { "MOVING", ride ? "AVG SPEED" : "AVG PACE",
                           "HR AVG/MAX", "ELEV GAIN",
                           ride ? "MAX SPEED" : "CADENCE",
@@ -237,8 +248,9 @@ static void prv_fill_texts(void) {
 
   fmt_dist(d, sizeof(d), g_stats.dist_m);
   snprintf(s_dist_buf, sizeof(s_dist_buf), "%s %s", d, g_set.miles ? "mi" : "km");
+  snprintf(s_title_buf, sizeof(s_title_buf), "%s SAVED", mode_label_for(g_stats.act));
 
-  bool ride = (g_set.mode == MODE_CYCLE);
+  bool ride = (g_stats.act == MODE_CYCLE);
   fmt_dur(s_v[0], sizeof(s_v[0]), moving);
   if (ride) fmt_speed(s_v[1], sizeof(s_v[1]), g_stats.avgp_s);
   else      fmt_pace(s_v[1], sizeof(s_v[1]), g_stats.avgp_s);
@@ -278,18 +290,25 @@ static void prv_fill_texts(void) {
   } else s_hr_rng[0] = 0;
 
   if (s_dist) text_layer_set_text(s_dist, s_dist_buf);
+  if (s_title) text_layer_set_text(s_title, s_title_buf);
   if (s_stats_layer) layer_mark_dirty(s_stats_layer);
   if (s_graphs_layer) layer_mark_dirty(s_graphs_layer);
+
 }
 
 static void prv_show_upload(void) {
-  if (!s_win || !s_upload) return;
+  if (!s_upload) return;   // stored anyway; rendered when the window next loads
   GColor c = prv_muted();
   if (s_upload_state == 0) {
     snprintf(s_upload_buf, sizeof(s_upload_buf), "Uploading...");
   } else if (s_upload_state == 1) {
     snprintf(s_upload_buf, sizeof(s_upload_buf), "Uploaded");
     c = PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack);
+  } else if (s_upload_state == 3) {
+    // The phone had no GPS track to send. Saying "Saved on phone" here (the old
+    // default branch) reported a failure as a success.
+    snprintf(s_upload_buf, sizeof(s_upload_buf), "Nothing to upload");
+    c = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
   } else if (s_upload_state == 2) {
     // surface the reason so a failure is diagnosable from the wrist
     if (s_upload_err > 0) {
@@ -306,6 +325,15 @@ static void prv_show_upload(void) {
 }
 
 /* ---- voice rename (Dictation API) ---- */
+static void prv_show_comms_error(void) {
+  s_menu = 0;
+  if (s_bar) hintbar_set_icons(s_bar, HB_UP, HB_MENU, HB_NONE, HB_DOWN);
+  if (!s_banner) return;
+  text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
+  text_layer_set_text_color(s_banner, GColorWhite);
+  text_layer_set_text(s_banner, "Phone unavailable");
+}
+
 #if defined(PBL_MICROPHONE)
 static DictationSession *s_dictation = NULL;
 static char s_name_buf[64];
@@ -313,26 +341,30 @@ static void prv_dictation_cb(DictationSession *session, DictationSessionStatus s
                              char *transcription, void *context) {
   (void)session; (void)context;
   if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
-    comms_send_rename(transcription);          // phone renames the just-saved run
-    if (s_banner) {
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
+    if (comms_send_rename(transcription) && s_banner) { // phone renames the just-saved run
+      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
       text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Renamed");
-    }
+      text_layer_set_text(s_banner, "Renaming...");
+    } else prv_show_comms_error();
   }
 }
-static void prv_start_rename(void) {
+static bool prv_start_rename(void) {
   if (!s_dictation)
     s_dictation = dictation_session_create(sizeof(s_name_buf), prv_dictation_cb, NULL);
-  if (s_dictation) dictation_session_start(s_dictation);
+  if (s_dictation) {
+    dictation_session_start(s_dictation);
+    return true;
+  }
+  return false;
 }
 #else
-static void prv_start_rename(void) {
+static bool prv_start_rename(void) {
   if (s_banner) {
     text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
     text_layer_set_text_color(s_banner, GColorWhite);
     text_layer_set_text(s_banner, "No mic on this watch");
   }
+  return false;
 }
 #endif
 
@@ -346,7 +378,8 @@ static void prv_apply_mode(void) {
   if (s_bar) {
     if (s_menu == 0)      hintbar_set_icons(s_bar, HB_UP, HB_MENU, HB_NONE, HB_DOWN);
     else if (s_menu == 1) hintbar_set_icons(s_bar, HB_UPLOAD, HB_MIC, HB_NONE, HB_TRASH);
-    else                  hintbar_set_icons(s_bar, HB_DECLINE, HB_CONFIRM, HB_NONE, HB_NONE);
+    else if (s_menu <= 3) hintbar_set_icons(s_bar, HB_DECLINE, HB_CONFIRM, HB_NONE, HB_NONE);
+    else                  hintbar_set_icons(s_bar, HB_NONE, HB_NONE, HB_NONE, HB_NONE);
   }
   if (s_banner) {
     if (s_menu == 0) {
@@ -359,11 +392,15 @@ static void prv_apply_mode(void) {
     } else if (s_menu == 2) {
       text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
       text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Discard this run?");
-    } else {
+      text_layer_set_text(s_banner, "Discard activity?");
+    } else if (s_menu == 3) {
       text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
       text_layer_set_text_color(s_banner, GColorWhite);
       text_layer_set_text(s_banner, "Upload to server?");
+    } else {
+      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
+      text_layer_set_text_color(s_banner, GColorWhite);
+      text_layer_set_text(s_banner, s_menu == 4 ? "Discarding..." : "Requesting upload...");
     }
   }
 }
@@ -381,7 +418,7 @@ static void prv_up_click(ClickRecognizerRef rec, void *ctx) {
   (void)rec; (void)ctx;
   if (s_menu == 0)      prv_scroll_by(+(s_scr_h * 8 / 10));
   else if (s_menu == 1) { s_menu = 3; prv_apply_mode(); }       // Upload -> confirm
-  else                  { s_menu = 1; prv_apply_mode(); }       // confirm -> cancel (keep)
+  else if (s_menu <= 3) { s_menu = 1; prv_apply_mode(); }       // confirm -> cancel (keep)
 }
 
 static void prv_down_click(ClickRecognizerRef rec, void *ctx) {
@@ -394,21 +431,20 @@ static void prv_down_click(ClickRecognizerRef rec, void *ctx) {
 static void prv_select_click(ClickRecognizerRef rec, void *ctx) {
   (void)rec; (void)ctx;
   if (s_menu == 0)      { s_menu = 1; prv_apply_mode(); }       // open menu
-  else if (s_menu == 1) { prv_start_rename(); s_menu = 0; prv_apply_mode(); }  // Rename (voice)
+  else if (s_menu == 1) { s_menu = 0; prv_apply_mode(); prv_start_rename(); }  // Rename (voice)
   else if (s_menu == 2) {                                       // confirm discard
-    comms_send_cmd(CMD_DISCARD);
-    main_workout_discarded();
-    window_stack_pop(true);
-  } else {                                                      // confirm upload (to server)
-    comms_send_cmd(CMD_UPLOAD);
-    s_menu = 0; prv_apply_mode();
+    if (comms_send_cmd(CMD_DISCARD)) { s_menu = 4; prv_apply_mode(); }
+    else prv_show_comms_error();
+  } else if (s_menu == 3) {                                     // confirm upload (to server)
+    if (comms_send_cmd(CMD_UPLOAD)) { s_menu = 5; prv_apply_mode(); }
+    else prv_show_comms_error();
   }
 }
 
 static void prv_back_click(ClickRecognizerRef rec, void *ctx) {
   (void)rec; (void)ctx;
   if (s_menu != 0) { s_menu = 0; prv_apply_mode(); }  // leave menu, stay on debrief
-  else window_stack_pop(true);
+  else { s_dismissed = true; window_stack_pop(true); }
 }
 
 static void prv_summary_clicks(void *ctx) {
@@ -423,6 +459,32 @@ void summary_set_upload(int state, int err) {
   s_upload_state = state;
   s_upload_err = err;
   prv_show_upload();
+}
+
+void summary_action_result(int cmd, bool ok) {
+  if (cmd == CMD_DISCARD && ok) {
+    // The phone's acknowledgement is authoritative even if the user backed out
+    // while it was in flight. Always clear the main workout state; visibility
+    // only controls whether there is a summary window left to pop.
+    main_workout_discarded();
+    s_dismissed = true;
+    if (prv_visible()) window_stack_pop(true);
+    return;
+  }
+  if (!prv_visible()) return;
+  s_menu = 0;
+  prv_apply_mode();
+  if (!s_banner) return;
+  text_layer_set_text_color(s_banner, GColorWhite);
+  if (ok) {
+    text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
+    text_layer_set_text(s_banner, cmd == CMD_RENAME ? "Renamed" :
+                                  cmd == CMD_UPLOAD ? "Upload requested" : "Done");
+  } else {
+    text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
+    text_layer_set_text(s_banner, cmd == CMD_RENAME ? "Rename failed" :
+                                  cmd == CMD_UPLOAD ? "Upload unavailable" : "Discard failed");
+  }
 }
 
 /* ---------------- window plumbing ---------------- */
@@ -446,9 +508,10 @@ static void prv_load(Window *window) {
   s_scr_h = b.size.h;
   const int track_h  = s_big ? 112 : 88;
   const int graph_h  = s_big ? 64 : 56;     // per graph, incl. caption
-  const int stats_h  = (s_big ? 42 : 37) * (g_set.mode == MODE_RUN ? 4 : 3);  // +1 row for VO2max on runs
+  const int stats_h  = (s_big ? 42 : 37) * (g_stats.act == MODE_RUN ? 4 : 3);  // +1 row for VO2max on runs
 
   s_menu = 0; s_off = 0;
+  s_loaded_act = g_stats.act;
   window_set_background_color(window, GColorWhite);
 
   s_scroll = scroll_layer_create(b);
@@ -457,7 +520,6 @@ static void prv_load(Window *window) {
   int y = 2;
   s_title = prv_text(GRect(10, y, CW - 20, 20), FONT_KEY_GOTHIC_18_BOLD,
                      GTextAlignmentLeft, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
-  text_layer_set_text(s_title, g_set.mode == MODE_WALK ? "WALK SAVED" : g_set.mode == MODE_CYCLE ? "RIDE SAVED" : "RUN SAVED");
   y += 22;
 
   s_dist = prv_text(GRect(0, y - 4, CW, 40),
@@ -507,37 +569,63 @@ static void prv_load(Window *window) {
   prv_apply_mode();
 }
 
+/* Destroys only what prv_load built. The Window itself is freed in
+ * summary_deinit: calling window_destroy() from inside a window's own unload
+ * handler frees memory the window stack is still unwinding through, and this
+ * handler can be reached from an AppMessage callback (see summary_action_result),
+ * which is exactly when that goes wrong. */
 static void prv_unload(Window *window) {
   (void)window;
 #if defined(PBL_MICROPHONE)
   if (s_dictation) { dictation_session_destroy(s_dictation); s_dictation = NULL; }
 #endif
   hintbar_destroy(s_bar); s_bar = NULL;
-  text_layer_destroy(s_banner);
-  text_layer_destroy(s_hint);
-  text_layer_destroy(s_title);
-  text_layer_destroy(s_dist);
-  text_layer_destroy(s_upload);
-  layer_destroy(s_track_layer);
-  layer_destroy(s_graphs_layer);
-  layer_destroy(s_stats_layer);
-  scroll_layer_destroy(s_scroll);
-  window_destroy(s_win);
-  s_win = NULL;
+  text_layer_destroy(s_banner);      s_banner = NULL;
+  text_layer_destroy(s_hint);        s_hint = NULL;
+  text_layer_destroy(s_title);       s_title = NULL;
+  text_layer_destroy(s_dist);        s_dist = NULL;
+  text_layer_destroy(s_upload);      s_upload = NULL;
+  layer_destroy(s_track_layer);      s_track_layer = NULL;
+  layer_destroy(s_graphs_layer);     s_graphs_layer = NULL;
+  layer_destroy(s_stats_layer);      s_stats_layer = NULL;
+  scroll_layer_destroy(s_scroll);    s_scroll = NULL;
+}
+
+/* A newly saved activity gets a clean debrief: no stale upload result, and the
+ * previous run's dismissal doesn't suppress it. */
+void summary_reset_for_new_run(void) {
+  s_upload_state = -1;
+  s_upload_err = 0;
+  s_dismissed = false;
+  s_menu = 0;
+  s_off = 0;
 }
 
 void summary_window_push(void) {
-  if (s_win) {
-    prv_fill_texts();
+  if (!s_win) {
+    s_win = window_create();
+    window_set_window_handlers(s_win, (WindowHandlers) {
+      .load = prv_load,
+      .unload = prv_unload,
+    });
+  }
+  if (window_stack_contains_window(s_win)) {
+    if (s_loaded_act != g_stats.act) {
+      // Run uses an extra VO2 row and Ride changes several labels. A MODE packet
+      // normally precedes the first load, but a recovered/late summary must also
+      // rebuild the geometry rather than squeeze four rows into a three-row frame.
+      window_stack_remove(s_win, false);
+      window_stack_push(s_win, false);
+      return;
+    }
+    prv_fill_texts();                                  // refresh in place
     if (s_track_layer) layer_mark_dirty(s_track_layer);
     return;
   }
-  s_upload_state = -1;
-  s_menu = 0; s_off = 0;
-  s_win = window_create();
-  window_set_window_handlers(s_win, (WindowHandlers) {
-    .load = prv_load,
-    .unload = prv_unload,
-  });
+  if (s_dismissed) return;   // late route/graph data must not resurrect it
   window_stack_push(s_win, true);
+}
+
+void summary_deinit(void) {
+  if (s_win) { window_destroy(s_win); s_win = NULL; }
 }

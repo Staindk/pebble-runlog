@@ -15,6 +15,7 @@ typedef enum {
   HB_RUN,        // activity: run
   HB_WALK,       // activity: walk
   HB_BIKE,       // activity: ride
+  HB_HIKE,       // activity: hike
   HB_UP,         // chevron up (scroll)
   HB_DOWN,       // chevron down (scroll)
   HB_MENU,       // kebab (open actions)

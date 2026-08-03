@@ -3,7 +3,7 @@
  * Shares the run.pts model with gpx.js: [t, lat, lon, ele|'', hr, seg, cad].
  * Helpers are rl-prefixed so they don't collide with the page's own code. */
 function rlTcxIso(t) { return new Date(t * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
-function rlTcxEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function rlTcxEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function rlTcxRad(d) { return d * Math.PI / 180; }
 function rlTcxCum(pts) {
   // cumulative metres along the track (haversine between fixes). A point flagged
@@ -25,8 +25,10 @@ function rlTcxCum(pts) {
 
 function rlTcxBuild(run) {
   if (!run || !run.pts || run.pts.length < 1) return null;   // defensive: nothing to export
-  var pts = run.pts, act = run.act || 0;
-  var sport = ['Running', 'Other', 'Biking'][act];   // TCX has no "Walking"
+  var pts = run.pts, act = (run.act >= 0 && run.act <= 3) ? run.act : 0;
+  var routed = run.route !== 0;
+  var sessionStart = run.start ? run.start / 1000 : pts[0][0];
+  var sport = ['Running', 'Other', 'Biking', 'Other'][act]; // TCX has no Walking/Hiking
   var cum = rlTcxCum(pts);
   var o = [];
   o.push('<?xml version="1.0" encoding="UTF-8"?>\n');
@@ -34,8 +36,8 @@ function rlTcxBuild(run) {
          'xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" ' +
          'xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n');
   o.push('<Activities><Activity Sport="' + sport + '">\n');
-  o.push('<Id>' + rlTcxIso(pts[0][0]) + '</Id>\n');
-  o.push('<Lap StartTime="' + rlTcxIso(pts[0][0]) + '">\n');
+  o.push('<Id>' + rlTcxIso(sessionStart) + '</Id>\n');
+  o.push('<Lap StartTime="' + rlTcxIso(sessionStart) + '">\n');
   o.push('<TotalTimeSeconds>' + (run.dur || 0) + '</TotalTimeSeconds>');
   o.push('<DistanceMeters>' + (run.dist || 0) + '</DistanceMeters>');
   o.push('<Calories>0</Calories>');
@@ -45,22 +47,24 @@ function rlTcxBuild(run) {
   o.push('<Track>\n');
   for (var i = 0; i < pts.length; i++) {
     var p = pts[i];
+    if (p[5] && i > 0) o.push('</Track>\n<Track>\n');
     o.push('<Trackpoint><Time>' + rlTcxIso(p[0]) + '</Time>');
-    o.push('<Position><LatitudeDegrees>' + p[1] + '</LatitudeDegrees>' +
-           '<LongitudeDegrees>' + p[2] + '</LongitudeDegrees></Position>');
-    if (p[3] !== '' && p[3] !== null && p[3] !== undefined)
+    if (routed) o.push('<Position><LatitudeDegrees>' + p[1] + '</LatitudeDegrees>' +
+                       '<LongitudeDegrees>' + p[2] + '</LongitudeDegrees></Position>');
+    if (routed && p[3] !== '' && p[3] !== null && p[3] !== undefined)
       o.push('<AltitudeMeters>' + p[3] + '</AltitudeMeters>');
-    o.push('<DistanceMeters>' + Math.round(cum[i] * 10) / 10 + '</DistanceMeters>');
+    if (routed) o.push('<DistanceMeters>' + Math.round(cum[i] * 10) / 10 + '</DistanceMeters>');
     if (p[4] > 0) o.push('<HeartRateBpm><Value>' + p[4] + '</Value></HeartRateBpm>');
-    var cad = (p.length > 6 && p[6] > 0) ? Math.round(p[6] / 2) : -1;   // rpm, matches GPX
+    var cad = (act !== 2 && p.length > 6 && p[6] > 0) ? Math.round(p[6] / 2) : -1;   // wrist steps -> foot cadence
     if (cad >= 0) {
-      if (act === 2) o.push('<Cadence>' + Math.min(254, cad) + '</Cadence>');
-      else o.push('<Extensions><ns3:TPX><ns3:RunCadence>' + Math.min(254, cad) +
-                  '</ns3:RunCadence></ns3:TPX></Extensions>');
+      o.push('<Extensions><ns3:TPX><ns3:RunCadence>' + Math.min(254, cad) +
+             '</ns3:RunCadence></ns3:TPX></Extensions>');
     }
     o.push('</Trackpoint>\n');
   }
-  o.push('</Track>\n</Lap>\n');
+  o.push('</Track>\n');
+  if (!routed) o.push('<Notes>No GPS route or distance was recorded.</Notes>\n');
+  o.push('</Lap>\n');
   o.push('<Creator xsi:type="Device_t" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
          '<Name>RunLog for Pebble</Name></Creator>\n');
   o.push('</Activity></Activities></TrainingCenterDatabase>\n');

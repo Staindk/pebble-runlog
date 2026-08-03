@@ -39,13 +39,16 @@ int egain_display(int meters) {
   return g_set.miles ? (meters * 328 + 50) / 100 : meters;
 }
 
-const char *mode_label(void) {
-  switch (g_set.mode) {
+const char *mode_label_for(int mode) {
+  switch (mode) {
     case MODE_WALK:  return "WALK";
     case MODE_CYCLE: return "RIDE";
+    case MODE_HIKE:  return "HIKE";
     default:         return "RUN";
   }
 }
+
+const char *mode_label(void) { return mode_label_for(g_set.mode); }
 
 int split_mult(void) {
   return (g_set.mode == MODE_CYCLE) ? 5 : 1;

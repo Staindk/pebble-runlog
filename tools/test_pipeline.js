@@ -11,6 +11,14 @@ var assert = require('assert');
 
 var APP = path.join(__dirname, '..', 'src', 'pkjs', 'index.js');
 
+function openedHtml(url) {
+  var b64p = 'data:text/html;charset=utf-8;base64,';
+  var plain = 'data:text/html;charset=utf-8,';
+  if (url.indexOf(b64p) === 0)
+    return Buffer.from(url.slice(b64p.length), 'base64').toString('utf8');
+  return decodeURIComponent(url.replace(plain, ''));
+}
+
 /* ---------------- stubs ---------------- */
 function makeWorld() {
   var W = {
@@ -21,6 +29,10 @@ function makeWorld() {
     store: {},
     xhrs: [],
     glances: [],       // Pebble.appGlanceReload payloads
+    geoStarts: 0,
+    geoStops: 0,
+    storeWrites: {},
+    intervalCalls: 0,
     clockMs: 0
   };
 
@@ -38,16 +50,24 @@ function makeWorld() {
 
   var navigatorStub = {
     geolocation: {
-      watchPosition: function (cb) { W.geoCb = cb; return 1; },
-      clearWatch: function () {}
+      watchPosition: function (cb) { W.geoCb = cb; W.geoStarts++; return W.geoStarts; },
+      clearWatch: function () { W.geoStops++; }
     }
   };
 
   var localStorageStub = {
     getItem: function (k) { return (k in W.store) ? W.store[k] : null; },
-    setItem: function (k, v) { W.store[k] = String(v); },
-    removeItem: function (k) { delete W.store[k]; }
+    setItem: function (k, v) {
+      if (W.failStore && W.failStore(k, String(v))) throw new Error('simulated storage failure');
+      W.store[k] = String(v);
+      W.storeWrites[k] = (W.storeWrites[k] || 0) + 1;
+    },
+    removeItem: function (k) { delete W.store[k]; },
+    key: function (i) { return Object.keys(W.store)[i] || null; }
   };
+  Object.defineProperty(localStorageStub, 'length', {
+    get: function () { return Object.keys(W.store).length; }
+  });
 
   function XHR() { this.headers = {}; W.xhrs.push(this); }
   XHR.prototype.open = function (m, u) { this.method = m; this.url = u; };
@@ -59,6 +79,7 @@ function makeWorld() {
     if (status > 0) { if (this.onload) this.onload(); }
     else { if (this.onerror) this.onerror(); }
   };
+  XHR.prototype.abort = function () { if (this.onabort) this.onabort(); };
 
   W.fire = function (name, e) {
     (W.listeners[name] || []).forEach(function (f) { f(e); });
@@ -69,12 +90,12 @@ function makeWorld() {
       { value: navigatorStub, configurable: true, writable: true });
     global.localStorage = localStorageStub;
     global.XMLHttpRequest = XHR;
-    global.setInterval = function () { return 0; };   // silence watchdog
+    global.setInterval = function () { W.intervalCalls++; return 0; };
     global.clearInterval = function () {};
     W.timers = [];
-    global.setTimeout = function (fn) {
+    global.setTimeout = function (fn, delay) {
       var id = W.timers.length + 1;
-      W.timers.push({ id: id, fn: fn });
+      W.timers.push({ id: id, fn: fn, delay: delay || 0 });
       return id;
     };
     global.clearTimeout = function (id) {
@@ -134,6 +155,55 @@ function lastWith(W, key) {
 }
 function le16(arr, i) { return arr[i] | (arr[i + 1] << 8); }
 function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
+function unpackPagePoints(r) {
+  var bytes = Buffer.from(r.ptb.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  var bi = 0;
+  function vu() {
+    var n = 0, mul = 1, b;
+    do {
+      assert(bi < bytes.length, 'packed route varint is complete');
+      b = bytes[bi++];
+      n += (b & 127) * mul;
+      mul *= 128;
+    } while (b & 128);
+    return n;
+  }
+  function vi() { var n = vu(); return n % 2 ? -(n + 1) / 2 : n / 2; }
+  function vic(n) { return n % 2 ? -(n + 1) / 2 : n / 2; }
+  function elev(n) { return n === 0 ? '' : vic(n - 1) / 10; }
+  var out = [], t = 0, la = 0, lo = 0, el = 0, hr = 0, cad = 0;
+  for (var i = 0; i < r.ptn; i++) {
+    var seg;
+    if (i === 0) {
+      t = vu(); la = vi(); lo = vi(); el = vu(); hr = vu(); seg = vu(); cad = vu();
+    } else {
+      t += vi(); la += vi(); lo += vi(); el += vi(); hr += vi(); seg = vu(); cad += vi();
+    }
+    out.push([t, la / 1e6, lo / 1e6, elev(el), hr, seg, cad]);
+  }
+  assert.strictEqual(bi, bytes.length, 'packed route has no trailing bytes');
+  return out;
+}
+function storedRuns(W) {
+  var index = JSON.parse(W.store['runlog.runs'] || '[]');
+  return index.map(function (meta) {
+    if (meta.pts || !meta._j) return meta;       // legacy fixture / metadata-only defensive case
+    var run = {};
+    Object.keys(meta).forEach(function (k) { if (k !== '_j') run[k] = meta[k]; });
+    run.pts = [];
+    for (var i = 0; i < meta._j.chunks; i++) {
+      var e = JSON.parse(W.store['runlog.j.' + meta._j.id + '.' + i]);
+      var t = 0, la = 0, lo = 0;
+      e.d.forEach(function (d, n) {
+        if (n === 0) { t = d[0]; la = d[1]; lo = d[2]; }
+        else { t += d[0]; la += d[1]; lo += d[2]; }
+        run.pts.push([t, la / 1e6, lo / 1e6, d[3] === null ? '' : d[3] / 10,
+                      d[4] || 0, d[5] || 0, d[6] || 0]);
+      });
+    }
+    return run;
+  });
+}
 
 /* =======================================================================
  * Unit: the shared chart smoother (gap- and pause-aware Gaussian kernel)
@@ -207,11 +277,12 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var split = msgsWith(W, 'SPLIT');
   assert.strictEqual(split.length, 1, 'exactly one split alert');
   assert.strictEqual(split[0].SPLIT, 1, 'split #1');
+  assert(split[0].DIST !== undefined, 'split shares the fix telemetry packet');
 
   var per = lastWith(W, 'PACE');
   assert(Math.abs(per.PACE - 300) <= 6, 'live pace ~5:00/km, got ' + per.PACE);
-  assert(Math.abs(per.AVGP - 300) <= 6, 'avg pace ~5:00/km, got ' + per.AVGP);
-  assert(per.EGAIN >= 8 && per.EGAIN <= 16, 'elev gain sane, got ' + per.EGAIN);
+  assert.strictEqual(per.AVGP, undefined, 'unused average pace omitted from live packets');
+  assert.strictEqual(per.EGAIN, undefined, 'unused elevation gain omitted from live packets');
   var distBefore = lastWith(W, 'DIST').DIST;
   assert(Math.abs(distBefore - 1316) < 15, 'distance ~1316 m, got ' + distBefore);
 
@@ -220,6 +291,8 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(accVals.length <= 8, 'accuracy throttled (' + accVals.length + ' sends)');
   assert(accVals.indexOf(15) >= 0, 'wobble value seen');
   assert.strictEqual(accVals[accVals.length - 1], 8, 'settled back to 8');
+  assert(msgsWith(W, 'ACC').some(function (m) { return m.DIST !== undefined; }),
+         'accuracy and live stats from one fix share a packet');
 
   // ---- auto-pause: 3 slow fixes pause, 2 fast resume ----
   w.step(0.2, 5, 35); w.step(0.2, 5, 35);
@@ -285,7 +358,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
 
   assert(!W.store['runlog.inprogress'], 'in-progress cleared');
 
-  var runs = JSON.parse(W.store['runlog.runs']);
+  var runs = storedRuns(W);
   assert.strictEqual(runs.length, 1, 'one stored run');
   var r = runs[0];
   ['name', 'start', 'dist', 'dur', 'mov', 'avgp', 'avgHr', 'maxHr',
@@ -298,6 +371,24 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(r.pts[0].length === 7, 'points carry cadence column');
   assert(r.pts.some(function (p) { return p[6] > 150; }), 'per-point cadence recorded');
   assert(r.pts.some(function (p) { return p[5] === 1; }), 'segment break after auto-pause');
+  assert(r.analysis && r.analysis.zones && r.analysis.zones.total > 300,
+         'post-workout HR-zone time computed after save');
+  assert.strictEqual(r.analysis.pauses, 1, 'auto-pause captured in the event journal');
+  assert(r.events.some(function (e) { return e[1] === 'start'; }) &&
+         r.events.some(function (e) { return e[1] === 'auto_pause'; }) &&
+         r.events.some(function (e) { return e[1] === 'auto_resume'; }) &&
+         r.events.some(function (e) { return e[1] === 'stop'; }),
+         'lifecycle event journal is complete');
+
+  var storedIndex = JSON.parse(W.store['runlog.runs']);
+  assert(storedIndex[0]._j && !storedIndex[0].pts,
+         'committed index is lightweight and points live in route chunks');
+  var journalKeys = Object.keys(W.store).filter(function (k) {
+    return k.indexOf('runlog.j.' + storedIndex[0]._j.id + '.') === 0;
+  });
+  assert(journalKeys.length === storedIndex[0]._j.chunks && journalKeys.length >= 1,
+         'all committed route chunks exist');
+  var writesBeforeUpload = journalKeys.map(function (k) { return W.storeWrites[k]; });
 
   assert.strictEqual(r.splits.length, 2, 'one full + one partial split');
   assert.strictEqual(r.splits[0].d, 1000, 'split 1 distance');
@@ -334,7 +425,11 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   x.respond(201);
   exp = msgsWith(W, 'EXPST').map(function (m) { return m.EXPST; });
   assert.deepStrictEqual(exp, [0, 1], 'EXPST uploaded');
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1, 'run marked uploaded');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'run marked uploaded');
+  journalKeys.forEach(function (k, i) {
+    assert.strictEqual(W.storeWrites[k], writesBeforeUpload[i],
+      'metadata-only upload state does not rewrite route chunk ' + i);
+  });
 
   /* ---- manual re-upload (retry button), server fails ---- */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', idx: 0 })) });
@@ -343,7 +438,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   exp = msgsWith(W, 'EXPST').map(function (m) { return m.EXPST; });
   assert.deepStrictEqual(exp, [0, 1, 0, 2], 'EXPST failure path');
   assert.strictEqual(lastWith(W, 'EXPERR').EXPERR, 500, 'failure reason sent to the watch');
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 2, 'run marked failed');
+  assert.strictEqual(storedRuns(W)[0].up, 2, 'run marked failed');
 
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
   assert(lg.some(function (m) { return /GPS ok, accuracy 8 m/.test(m); }), 'gps logged');
@@ -354,23 +449,26 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   /* ---- debrief page injection ---- */
   W.fire('showConfiguration', {});
   assert.strictEqual(W.opened.length, 2, 'page opened (once after save, once via gear)');
-  var html = decodeURIComponent(W.opened[1].replace('data:text/html;charset=utf-8,', ''));
+  var html = openedHtml(W.opened[1]);
   assert(html.indexOf('__RUNLOG_') < 0, 'all placeholders replaced');
   assert(html.indexOf('var RUNS = [{') >= 0, 'runs injected');
   assert(/"name":"\d{4}-\d{2}-\d{2}_\d{4}_run/.test(html), "run name in page");
   assert(html.indexOf('var MILES = false') >= 0, 'units injected');
   assert(html.indexOf('var INITIAL = 0') >= 0, 'gear opens on the list view');
-  assert(html.indexOf('"auth":"Bearer tok123"') >= 0, 'cfg injected');
+  assert(html.indexOf('Bearer tok123') < 0, 'saved authorization is never injected into page source');
+  assert(html.indexOf('"hasAuth":true') >= 0, 'page receives only the saved-secret presence flag');
+  assert(html.indexOf('"pts":[') < 0 && html.indexOf('"ptb":"') >= 0,
+         'one settings page carries retained routes in compact form');
   assert(html.indexOf('var LOGL = [[') >= 0, 'log injected into the page');
 
   // the auto-open after the save deep-links to that run
-  var html0 = decodeURIComponent(W.opened[0].replace('data:text/html;charset=utf-8,', ''));
-  assert(html0.indexOf('var INITIAL = ' + JSON.parse(W.store['runlog.runs'])[0].start) >= 0,
+  var html0 = openedHtml(W.opened[0]);
+  assert(html0.indexOf('var INITIAL = ' + storedRuns(W)[0].sid) >= 0,
          'post-save page deep-links to the new run');
 
   /* ---- delete ---- */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'del', idx: 0 })) });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 0, 'run deleted');
+  assert.strictEqual(storedRuns(W).length, 0, 'run deleted');
 
   console.log('scenario 1 (km run, autopause, graphs, upload, page) OK');
 })();
@@ -398,7 +496,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(dAtSplit > 1550, 'mile split not at 1 km (DIST before split ' + dAtSplit + ')');
 
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var r = JSON.parse(W.store['runlog.runs'])[0];
+  var r = storedRuns(W)[0];
   assert.strictEqual(r.mi, 1, 'run stored in miles mode');
   assert.strictEqual(r.splits[0].d, 1609, 'split distance 1609 m');
   assert(Math.abs(r.splits[0].s - 483) <= 8, 'mile split ~8:03, got ' + r.splits[0].s);
@@ -420,7 +518,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(b64dec(d.headers.Authorization.replace('Basic ', '')), 'kai:hunter2',
                      'user:pass auto-wrapped as Basic');
   d.respond(201);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1);
+  assert.strictEqual(storedRuns(W)[0].up, 1);
 
   /* ---- intervals.icu preset ---- */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
@@ -440,7 +538,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(iv.body.indexOf('name="file"; filename="') >= 0 && /filename="\d{4}-\d{2}-\d{2}_\d{4}_run/.test(iv.body), 'multipart file field');
   assert(iv.body.indexOf('<gpx ') >= 0, 'gpx inside multipart');
   iv.respond(200);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1);
+  assert.strictEqual(storedRuns(W)[0].up, 1);
 
   /* ---- Runalyze preset ---- */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
@@ -485,7 +583,11 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.boot();
   W.fire('ready', {});
 
-  var runs = JSON.parse(W.store['runlog.runs']);
+  assert(!W.store['runlog.runs'], 'stale checkpoint is retained until the watch reconciles');
+  assert(W.store['runlog.inprogress'], 'stale checkpoint is not silently discarded');
+  W.fire('appmessage', { payload: { PROTO: 2, HELLO: 1, SID: 0, SEQ: 0, WSTATE: 0 } });
+
+  var runs = storedRuns(W);
   assert.strictEqual(runs.length, 1, 'recovered run stored');
   assert(/\(recovered\)$/.test(runs[0].name), 'recovered suffix');
   assert(runs[0].splits.length >= 1, 'recovered run has splits');
@@ -496,10 +598,10 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', idx: 0 })) });
   assert.strictEqual(W.xhrs.length, 1, 'manual upload of the recovered run');
   W.xhrs[0].respond(200);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1, 'marked uploaded');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'marked uploaded');
 
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'clear' })) });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 0, 'clear all');
+  assert.strictEqual(storedRuns(W).length, 0, 'clear all');
 
   console.log('scenario 3 (recovery, manual upload, clear) OK');
 })();
@@ -524,11 +626,11 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   for (var j = 0; j < 6; j++) w.step(1.5, 5, null);
   W.fire('appmessage', { payload: { CMD: 4 } });
 
-  var walk = JSON.parse(W.store['runlog.runs'])[0];
+  var walk = storedRuns(W)[0];
   assert(/^\d{4}-\d{2}-\d{2}_\d{4}_walk$/.test(walk.name), 'walk name: ' + walk.name);
   assert.strictEqual(walk.act, 1, 'walk activity stored');
 
-  /* FitTrackee auto-export: Bearer token, multipart file + data(sport_id) */
+  /* FitTrackee manual export: Bearer token, multipart file + data(sport_id) */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
     act: 'cfg', cfg: { auto: true, preset: 'fittrackee',
                        url: 'https://ft.home.lan/', auth: '', key: 'jwt-abc' }
@@ -546,7 +648,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
          ft.body.indexOf('{"sport_id":6}') >= 0, 'walking sport id');
   assert(ft.body.indexOf('<type>walking</type>') >= 0, 'gpx type walking');
   ft.respond(201);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1);
+  assert.strictEqual(storedRuns(W)[0].up, 1);
 
   /* ---- switch to stored credentials: RunLog manages the token itself ---- */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
@@ -576,7 +678,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(sp[0].SPLIT, 5, 'ride split announces cumulative 5 km');
 
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var runs = JSON.parse(W.store['runlog.runs']);
+  var runs = storedRuns(W);
   var ride = runs[runs.length - 1];
   assert(/^\d{4}-\d{2}-\d{2}_\d{4}_ride$/.test(ride.name), 'ride name: ' + ride.name);
   assert.strictEqual(ride.act, 2, 'ride activity stored');
@@ -605,7 +707,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(up1.body.indexOf('{"sport_id":1}') >= 0, 'cycling sport id');
   assert(up1.body.indexOf('<type>cycling</type>') >= 0, 'gpx type cycling');
   up1.respond(201);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1, 'ride uploaded');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'ride uploaded');
 
   /* cached token reused: a retry goes straight to the workout endpoint */
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', idx: 0 })) });
@@ -619,7 +721,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.xhrs[4].respond(200, '{"auth_token":"jwt-2"}');
   assert.strictEqual(W.xhrs[5].headers.Authorization, 'Bearer jwt-2', 'refreshed token used');
   W.xhrs[5].respond(201);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1, 'recovered after expiry');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'recovered after expiry');
   assert.strictEqual(W.store['runlog.ftok'], 'jwt-2', 'new token cached');
 
   /* and if the login itself fails, the run is marked for retry */
@@ -627,7 +729,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.xhrs[6].respond(401);
   W.xhrs[7].respond(500);
   assert.strictEqual(W.xhrs.length, 8, 'gave up after failed login');
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 2, 'marked failed, will retry later');
+  assert.strictEqual(storedRuns(W)[0].up, 2, 'marked failed, will retry later');
   assert.strictEqual(lastWith(W, 'EXPST').EXPST, 2, 'watch told about the failure');
   assert.strictEqual(lastWith(W, 'EXPERR').EXPERR, 500, 'login status named as the reason');
   var lg4 = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
@@ -673,13 +775,14 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var p = lastWith(W, 'PACE');
   assert(p && p.PACE > 0, 'pace computed without GPS timestamps');
   assert(Math.abs(p.PACE - 300) <= 8, 'pace ~5:00/km, got ' + p.PACE);
-  assert(Math.abs(p.AVGP - 300) <= 8, 'avg pace alive too, got ' + p.AVGP);
+  assert.strictEqual(p.AVGP, undefined, 'average pace waits for the final summary');
 
   W.fire('appmessage', { payload: { CMD: 4 } });
   var saved = lastWith(W, 'SAVED');
+  assert(Math.abs(saved.AVGP - 300) <= 8, 'final average pace ~5:00/km, got ' + saved.AVGP);
   assert(saved.MOVS >= 280 && saved.MOVS <= 310, 'moving time from wall clock: ' + saved.MOVS);
   assert(lastWith(W, 'PACEG'), 'pace graph still produced');
-  var r = JSON.parse(W.store['runlog.runs'])[0];
+  var r = storedRuns(W)[0];
   assert(r.pts[0][0] > 1.7e9 && r.pts[0][0] < 4e9, 'GPX gets real epoch seconds');
   assert(r.dur >= 290 && r.dur <= 310, 'duration sane: ' + r.dur);
 
@@ -802,10 +905,10 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
 
   /* discard within the grace window: run gone, upload never fires */
   quickRun(1750600000);
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 1, 'run saved');
+  assert.strictEqual(storedRuns(W).length, 1, 'run saved');
   assert.strictEqual(W.xhrs.length, 0, 'nothing uploaded on save (user-driven)');
   W.fire('appmessage', { payload: { CMD: 6 } });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 0, 'discarded');
+  assert.strictEqual(storedRuns(W).length, 0, 'discarded');
   W.flushTimers();
   assert.strictEqual(W.xhrs.length, 0, 'scheduled upload was cancelled');
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
@@ -817,7 +920,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(W.xhrs.length, 1, 'upload in flight');
   var expBefore = msgsWith(W, 'EXPST').length;
   W.fire('appmessage', { payload: { CMD: 6 } });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 0, 'discarded mid-flight');
+  assert.strictEqual(storedRuns(W).length, 0, 'discarded mid-flight');
   W.xhrs[0].respond(201);
   assert.strictEqual(msgsWith(W, 'EXPST').length, expBefore,
                      'no upload status for a discarded workout');
@@ -825,32 +928,40 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     return /discarded workout ignored/.test(e[1]);
   }), 'late result logged and dropped');
 
-  /* retype: Run -> Walk -> Ride -> Run, splits and cadence follow */
+  /* retype: Run -> Walk -> Ride -> Hike -> Run, splits and cadence follow */
   quickRun(1750602000);
   W.fire('appmessage', { payload: { CMD: 7 } });
   W.xhrs[1].respond(201);
-  var r0 = JSON.parse(W.store['runlog.runs'])[0];
+  var r0 = storedRuns(W)[0];
   assert(/_run\b/.test(r0.name) && r0.cad > 0, 'baseline run with cadence: ' + r0.name);
 
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retype', idx: 0, to: 1 })) });
-  var r1 = JSON.parse(W.store['runlog.runs'])[0];
+  var r1 = storedRuns(W)[0];
   assert(/_walk\b/.test(r1.name), 'renamed to Walk: ' + r1.name);
   assert.strictEqual(r1.act, 1, 'act updated');
-  assert.strictEqual(r1.up, 1, 'upload state untouched');
+  assert.strictEqual(r1.up, 3, 'uploaded run is marked changed locally');
   var lg7 = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
   assert(lg7.some(function (m) { return /retyped ".* -> Walk/.test(m); }), 'retype logged');
   assert(lg7.some(function (m) { return /re-upload to update the server copy/.test(m); }), 'server note');
 
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retype', idx: 0, to: 2 })) });
-  var r2 = JSON.parse(W.store['runlog.runs'])[0];
-  assert.strictEqual(r2.cad, 0, 'ride drops cadence');
+  var r2 = storedRuns(W)[0];
+  assert.strictEqual(r2.cad, 0, 'ride presentation suppresses cadence');
+  assert(r2.pts.some(function (p) { return p[6] > 0; }), 'ride retype preserves raw wrist samples');
   assert.strictEqual(r2.splits.length, 1, 'ride splits recomputed (partial only)');
   assert(r2.splits[0].d < 1000, '183 m never makes a 5 km split');
 
+  W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retype', idx: 0, to: 3 })) });
+  var r3 = storedRuns(W)[0];
+  assert(/_hike\b/.test(r3.name) && r3.act === 3, 'retyped to a Hike: ' + r3.name);
+  assert(r3.cad > 150, 'Hike cadence recovered from raw samples, got ' + r3.cad);
+  assert(r3.splits.length >= 1 && r3.splits[0].d < 1000,
+         'short Hike keeps a one-unit partial split');
+
   W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retype', idx: 0, to: 0 })) });
-  var r3 = JSON.parse(W.store['runlog.runs'])[0];
-  assert(/_run\b/.test(r3.name) && r3.act === 0, 'back to a run: ' + r3.name);
-  assert(r3.cad > 150, 'cadence recovered from steps, got ' + r3.cad);
+  var r4 = storedRuns(W)[0];
+  assert(/_run\b/.test(r4.name) && r4.act === 0, 'back to a run: ' + r4.name);
+  assert(r4.cad > 150, 'run cadence retained, got ' + r4.cad);
 
   console.log('scenario 7 (watch discard, in-flight guard, retype) OK');
 })();
@@ -894,7 +1005,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert.strictEqual(lastWith(W, 'EXPST').EXPST, 0, 'watch shown uploading');
   x.respond(201);
   assert.strictEqual(lastWith(W, 'EXPST').EXPST, 1, 'watch shown uploaded');
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].up, 1, 'run marked uploaded');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'run marked uploaded');
 
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
   assert(lg.some(function (m) { return /manual upload from watch/.test(m); }), 'manual upload logged');
@@ -938,7 +1049,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var Part = part.charAt(0).toUpperCase() + part.slice(1);
   var date = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
   var time = p2(h) + '.' + p2(d.getMinutes());
-  var r = JSON.parse(W.store['runlog.runs'])[0];
+  var r = storedRuns(W)[0];
   assert.strictEqual(r.name, Part + ' run ' + date + ' @' + time + ' session',
                      'template expands all tokens: ' + r.name);
 
@@ -947,7 +1058,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('webviewclosed', { response: enc({
     act: 'cfg', cfg: { auto: 0, preset: 'custom', url: '', auth: '', key: '', name: '' } }) });
   W.fire('webviewclosed', { response: enc({ act: 'retype', idx: 0, to: 1 }) });
-  var r2 = JSON.parse(W.store['runlog.runs'])[0];
+  var r2 = storedRuns(W)[0];
   assert(/^\d{4}-\d{2}-\d{2}_\d{4}_walk$/.test(r2.name),
                      'blank template -> new time-bearing default, regenerated for walk: ' + r2.name);
 
@@ -955,7 +1066,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('webviewclosed', { response: enc({
     act: 'cfg', cfg: { auto: 0, preset: 'custom', url: '', auth: '', key: '', name: '{bogus}-{activity}' } }) });
   W.fire('webviewclosed', { response: enc({ act: 'retype', idx: 0, to: 0 }) });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].name, '{bogus}-run',
+  assert.strictEqual(storedRuns(W)[0].name, '{bogus}-run',
                      'unknown token passes through verbatim');
 
   // strftime-style %-codes expand from the run's start time
@@ -966,18 +1077,18 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     act: 'cfg', cfg: { auto: 0, preset: 'custom', url: '', auth: '', key: '',
                        name: '%F_%H%M%S-%a-%b-{activity}' } }) });
   W.fire('webviewclosed', { response: enc({ act: 'retype', idx: 0, to: 0 }) });
-  var rs = new Date(JSON.parse(W.store['runlog.runs'])[0].start);
+  var rs = new Date(storedRuns(W)[0].start);
   var expF = rs.getFullYear() + '-' + p2s(rs.getMonth() + 1) + '-' + p2s(rs.getDate());
   var expHMS = p2s(rs.getHours()) + p2s(rs.getMinutes()) + p2s(rs.getSeconds());
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].name,
+  assert.strictEqual(storedRuns(W)[0].name,
     expF + '_' + expHMS + '-' + DOW[rs.getDay()] + '-' + MON3[rs.getMonth()] + '-run',
-    'strftime %F/%H%M%S/%a/%b expand: ' + JSON.parse(W.store['runlog.runs'])[0].name);
+    'strftime %F/%H%M%S/%a/%b expand: ' + storedRuns(W)[0].name);
 
   // %% is a literal percent; bare % followed by a non-code is left alone
   W.fire('webviewclosed', { response: enc({
     act: 'cfg', cfg: { auto: 0, preset: 'custom', url: '', auth: '', key: '', name: '%H%% effort {activity}' } }) });
   W.fire('webviewclosed', { response: enc({ act: 'retype', idx: 0, to: 0 }) });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].name,
+  assert.strictEqual(storedRuns(W)[0].name,
     p2s(rs.getHours()) + '% effort run', 'strftime %% -> literal percent');
 
   console.log('scenario 9 (run-name template) OK');
@@ -998,9 +1109,9 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   for (var i = 0; i < 12; i++) w.step(10 / 3, 5, null);
   W.fire('appmessage', { payload: { CMD: 4 } });
 
-  var before = JSON.parse(W.store['runlog.runs'])[0].name;
+  var before = storedRuns(W)[0].name;
   W.fire('appmessage', { payload: { RENAME: '  Sunset   River Loop  ' } });
-  var r = JSON.parse(W.store['runlog.runs'])[0];
+  var r = storedRuns(W)[0];
   assert.strictEqual(r.name, 'Sunset River Loop', 'voice name applied + whitespace tidied: ' + r.name);
   assert.notStrictEqual(r.name, before, 'name actually changed');
   var lg = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
@@ -1009,8 +1120,8 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
 
   // a blank/whitespace transcription is ignored, and the run stays on the phone
   W.fire('appmessage', { payload: { RENAME: '   ' } });
-  assert.strictEqual(JSON.parse(W.store['runlog.runs'])[0].name, 'Sunset River Loop', 'blank rename ignored');
-  assert.strictEqual(JSON.parse(W.store['runlog.runs']).length, 1, 'run still kept on the phone');
+  assert.strictEqual(storedRuns(W)[0].name, 'Sunset River Loop', 'blank rename ignored');
+  assert.strictEqual(storedRuns(W).length, 1, 'run still kept on the phone');
 
   console.log('scenario 10 (voice rename of last run) OK');
 })();
@@ -1028,7 +1139,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   var w = makeWalker(W, 1750300000, -31.95, 115.85);
   for (var i = 0; i < 40; i++) w.step(10 / 3, 5, 20);     // ~667 m over 40 fixes
   W.fire('appmessage', { payload: { CMD: 4 } });          // stop & save
-  assert(JSON.parse(W.store['runlog.runs']).length >= 1, 'run saved for export');
+  assert(storedRuns(W).length >= 1, 'run saved for export');
 
   function uploadAs(fmt) {
     var n = W.xhrs.length;
@@ -1111,7 +1222,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   }
   W.fire('appmessage', { payload: { CMD: 4 } });       // stop & save
 
-  var run = JSON.parse(W.store['runlog.runs'])[0];
+  var run = storedRuns(W)[0];
   // 200 m/min -> ACSM VO2 43.5; HR 160/190 = 84.2% -> Swain %VO2 ~73.8% -> ~59
   assert(run.vo2max >= 53 && run.vo2max <= 66,
     'running VO2max in plausible band (~59): ' + run.vo2max);
@@ -1136,7 +1247,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     raw.push(e); w.step(10 / 3, 5, e);
   }
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var pts = JSON.parse(W.store['runlog.runs'])[0].pts;
+  var pts = storedRuns(W)[0].pts;
   var ele = pts.map(function (p) { return p[3]; }).filter(function (x) { return x !== ''; });
   function tv(a) { var s = 0; for (var i = 1; i < a.length; i++) s += Math.abs(a[i] - a[i - 1]); return s; }
   assert(tv(ele) < tv(raw) * 0.5, 'stored elevation smoothed: TV ' + tv(ele).toFixed(0) + ' << raw ' + tv(raw));
@@ -1162,7 +1273,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
     W.fire('appmessage', { payload: { HR: 150, STEPS: (i + 1) * 13 } });  // 13 steps/interval = 156 spm
   }
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var pts = JSON.parse(W.store['runlog.runs'])[0].pts;
+  var pts = storedRuns(W)[0].pts;
   var cad = pts.map(function (p) { return p[6]; }).filter(function (c) { return c > 0; }).slice(2);
   var lo = Math.min.apply(null, cad), hi = Math.max.apply(null, cad);
   assert(lo >= 140 && hi <= 175, 'cadence stays near 156 despite BLE jitter: ' + lo + '..' + hi);
@@ -1186,13 +1297,11 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('appmessage', { payload: { CMD: 4 } });
   assert(lastWith(W, 'NOSAVE'), 'empty stop reports NOSAVE');
   assert(!lastWith(W, 'SAVED'), 'empty stop does NOT claim SAVED');
-  assert(!W.store['runlog.runs'] || JSON.parse(W.store['runlog.runs']).length === 0, 'nothing stored for an empty stop');
+  assert(!W.store['runlog.runs'] || storedRuns(W).length === 0, 'nothing stored for an empty stop');
 
-  // (b) no GPS the whole session, even with elapsed time + steps -> still NOSAVE
-  // and nothing stored. A run with no route (hence no distance, pace, HR series
-  // or map) is not something we keep or pretend to have saved. This is the honest
-  // replacement for the earlier attempt to store empty-track "treadmill" runs,
-  // which broke the detail page, all three exporters and upload.
+  // (b) meaningful elapsed time + steps, but no GPS: save a route-less workout.
+  // Distance stays unknown/zero and no coordinate is invented; the detail page
+  // and all exporters now have explicit route-less representations.
   W.msgs.length = 0;                                    // isolate this leg's messages
   var t1 = 1750301000;
   W.clockMs = t1 * 1000;
@@ -1200,10 +1309,15 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   W.fire('appmessage', { payload: { STEPS: 1800 } });   // steps arrive, but no GPS fixes ever do
   W.clockMs = (t1 + 900) * 1000;                        // 15 minutes later
   W.fire('appmessage', { payload: { CMD: 4 } });
-  assert(lastWith(W, 'NOSAVE'), 'no-GPS stop reports NOSAVE even with elapsed time');
-  assert(!lastWith(W, 'SAVED'), 'no-GPS stop does NOT claim SAVED');
-  assert(!W.store['runlog.runs'] || JSON.parse(W.store['runlog.runs']).length === 0, 'no-GPS run is not stored');
-  console.log('scenario 16 (honest NOSAVE; no-GPS never stored) OK');
+  assert(lastWith(W, 'SAVED'), 'meaningful no-GPS workout is saved');
+  assert(!lastWith(W, 'NOSAVE'), 'meaningful no-GPS workout is not discarded');
+  var rl = storedRuns(W)[0];
+  assert.strictEqual(rl.route, 0, 'saved workout is explicitly route-less');
+  assert.strictEqual(rl.dist, 0, 'route-less workout never fabricates distance');
+  assert.strictEqual(rl.steps, 1800, 'route-less workout keeps watch totals');
+  assert(rl.pts.length >= 1 && rl.pts.every(function (p) { return p[1] === 0 && p[2] === 0; }),
+         'route-less measurement points contain no fabricated coordinates');
+  console.log('scenario 16 (honest route-less save; empty stop still NOSAVE) OK');
 })();
 
 /* Scenario 17: steps taken while paused must not inflate the total or cadence (#23). */
@@ -1233,7 +1347,7 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   // excluded on the watch, so it does NOT jump forward by them.
   for (i = 1; i <= 6; i++) { w.step(2.6, 5, 30); W.fire('appmessage', { payload: { STEPS: 78 + i * 13 } }); }  // 78 more moving steps
   W.fire('appmessage', { payload: { CMD: 4 } });
-  var r = JSON.parse(W.store['runlog.runs'])[0];
+  var r = storedRuns(W)[0];
   assert.strictEqual(r.steps, 156, 'phone uses the watch net step count as-is (not 276): ' + r.steps);
   assert(r.cad === 0 || (r.cad > 0 && r.cad <= 260), 'stored cadence is sane, no pause-gap spike: ' + r.cad);
   console.log('scenario 17 (phone trusts watch net steps; no double-count) OK');
@@ -1251,7 +1365,13 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   for (i = 1; i <= 15; i++) w.step(3.0, 5, 30);       // 15 clean fixes -> a checkpoint is written
   assert(W.store['runlog.inprogress'], 'checkpoint persisted mid-run');
   var cp = JSON.parse(W.store['runlog.inprogress']);
-  assert(cp.pts && cp.pts.length >= 14, 'checkpoint holds the recorded points: ' + (cp.pts && cp.pts.length));
+  assert.strictEqual(cp.chunked, 1, 'checkpoint uses an appendable chunk journal');
+  assert(cp.npts >= 14, 'checkpoint records point count: ' + cp.npts);
+  assert(W.store['runlog.ip.' + cp.sid + '.0'], 'first point chunk persisted separately');
+  assert(!cp.pts, 'metadata does not rewrite the full route');
+  var torn = JSON.parse(W.store['runlog.ip.' + cp.sid + '.0']);
+  torn.push([9999999999, 80, 80, '', 0, 0, 0]); // chunk landed, metadata did not
+  W.store['runlog.ip.' + cp.sid + '.0'] = JSON.stringify(torn);
   assert(cp.paused === 0 && cp.autopaused === 0, 'checkpoint records pause state');
 
   // Simulate a phone-JS restart: fresh module + world, SAME persistent storage,
@@ -1269,9 +1389,13 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   // The first post-restart fix is ~6 km from the pre-restart point (GPS reacquired
   // elsewhere). That gap must NOT be added to distance — only real movement after.
   var w2 = makeWalker(W2, t0 + 80, -31.99, 115.90);
-  for (i = 1; i <= 10; i++) w2.step(3.0, 5, 30);
+  for (i = 1; i <= 15; i++) w2.step(3.0, 5, 30);
+  var repairedChunk = JSON.parse(W2.store['runlog.ip.' + cp.sid + '.0']);
+  assert.strictEqual(repairedChunk.length, 30, 'uncommitted chunk tail is replaced, not duplicated');
+  assert(repairedChunk.every(function (p) { return p[0] !== 9999999999; }),
+         'torn-write marker removed before append');
   W2.fire('appmessage', { payload: { CMD: 4 } });     // stop
-  var r = JSON.parse(W2.store['runlog.runs'])[0];
+  var r = storedRuns(W2)[0];
   assert(r.dist < 2000, 'restart gap excluded from distance (want a few hundred m, not ~6 km): ' + r.dist);
   assert(r.dist > 100, 'real distance still accumulated across the restart: ' + r.dist);
 
@@ -1282,6 +1406,777 @@ function b64dec(s) { return Buffer.from(s, 'base64').toString('utf8'); }
   assert(!lastWith(W2, 'NOSAVE'), 'duplicate stop is silent (no NOSAVE over a prior SAVED)');
   assert(!lastWith(W2, 'SAVED'), 'duplicate stop does not re-save');
   console.log('scenario 18 (restart resume, no gap distance, idempotent stop) OK');
+})();
+
+/* =======================================================================
+ * Scenario 19: protocol v2 sequencing. Duplicate and stale intents converge
+ * on one session and one stored workout, with explicit ACK/result snapshots.
+ * ===================================================================== */
+(function scenario19() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var sid = 0x12345678, t0 = 1750800000;
+  W.clockMs = t0 * 1000;
+
+  function cmd(n, seq, state, extra) {
+    var p = { PROTO: 2, SID: sid, SEQ: seq, CMD: n, WSTATE: state,
+              STARTTS: t0, ACTIVE: 0, SAMPLET: Math.round(W.clockMs / 1000) };
+    Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
+    W.fire('appmessage', { payload: p });
+    var ack = lastWith(W, 'ACK');
+    assert(ack && ack.ACK === seq, 'command ' + n + '/' + seq + ' acknowledged');
+    return ack;
+  }
+
+  var a = cmd(1, 10, 1, { STEPS: 0 });
+  assert.strictEqual(a.RESULT, 1, 'start accepted');
+  assert.strictEqual(a.SID, sid, 'authoritative session id echoed');
+  assert.strictEqual(a.WSTATE, 1, 'phone reports running');
+
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 18; i++) w.step(3, 5, 20);
+  var cp = JSON.parse(W.store['runlog.inprogress']);
+  var beforeN = cp.npts;
+
+  cmd(1, 10, 1);                         // duplicate START: ACK, no reset
+  assert.strictEqual(JSON.parse(W.store['runlog.inprogress']).npts, beforeN,
+                     'duplicate START does not reset the route');
+  cmd(2, 11, 2);
+  assert.strictEqual(lastWith(W, 'WSTATE').WSTATE, 2, 'pause converged');
+
+  cmd(1, 10, 1);                         // reordered old START
+  assert.strictEqual(JSON.parse(W.store['runlog.inprogress']).cmdSeq, 11,
+                     'stale START cannot roll the sequence backwards');
+  cmd(3, 12, 1);
+  for (i = 0; i < 6; i++) w.step(3, 5, 20);
+  cmd(4, 13, 3, { STEPS: 77, HR: 155 });
+
+  var runs = storedRuns(W);
+  assert.strictEqual(runs.length, 1, 'STOP creates exactly one workout');
+  assert.strictEqual(runs[0].sid, sid, 'saved workout keeps protocol session id');
+  assert.strictEqual(runs[0].steps, 77, 'transactional STOP includes final sensor sample');
+
+  cmd(4, 13, 3, { STEPS: 77, HR: 155 }); // duplicate STOP: cached ACK + summary
+  assert.strictEqual(storedRuns(W).length, 1,
+                     'duplicate STOP cannot double-save');
+
+  // A fresh watch launch deliberately reports READY with no session id. The
+  // phone keeps the saved activity as an action/history target, but must not
+  // push its summary back over the blank recorder screen.
+  var summariesBeforeReopen = msgsWith(W, 'SAVED').length;
+  W.fire('appmessage', { payload: {
+    PROTO: 2, HELLO: 1, SID: 0, SEQ: 13, WSTATE: 0, ACTIVE: 0, STEPS: 0
+  } });
+  assert.strictEqual(lastWith(W, 'WSTATE').WSTATE, 0,
+                     'fresh READY launch remains idle');
+  assert.strictEqual(msgsWith(W, 'SAVED').length, summariesBeforeReopen,
+                     'fresh READY launch does not replay the previous summary');
+
+  cmd(6, 14, 4);
+  assert.strictEqual(storedRuns(W).length, 0,
+                     'session-scoped discard removes the intended workout');
+  assert.strictEqual(lastWith(W, 'ACK').RESULT, 1, 'discard success is acknowledged');
+  console.log('scenario 19 (versioned session protocol, duplicates/reordering) OK');
+})();
+
+/* =======================================================================
+ * Scenario 20: a checkpoint older than the old 20-minute cutoff remains live
+ * when the watch says that same session is still paused.
+ * ===================================================================== */
+(function scenario20() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var sid = 424242, t0 = 1750900000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: {
+    PROTO: 2, SID: sid, SEQ: 1, CMD: 1, WSTATE: 1, STARTTS: t0, ACTIVE: 0
+  } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 18; i++) w.step(2.5, 5, 20);
+  W.fire('appmessage', { payload: {
+    PROTO: 2, SID: sid, SEQ: 2, CMD: 2, WSTATE: 2, ACTIVE: 90
+  } });
+  var store = W.store;
+
+  var W2 = makeWorld();
+  W2.store = store;
+  W2.clockMs = (t0 + 7200) * 1000;       // two-hour pause
+  W2.boot(); W2.fire('ready', {});
+  assert(!W2.store['runlog.runs'], 'old checkpoint is not finalized from age alone');
+  assert(W2.store['runlog.inprogress'], 'two-hour paused session remains recoverable');
+  W2.fire('appmessage', { payload: {
+    PROTO: 2, HELLO: 1, SID: sid, SEQ: 2, WSTATE: 2, APAUSE: 0,
+    ACTIVE: 90, STARTTS: t0, STEPS: 250, SAMPLET: t0 + 7200
+  } });
+  assert.strictEqual(lastWith(W2, 'WSTATE').WSTATE, 2, 'watch and phone reconcile to paused');
+  assert(!W2.store['runlog.runs'], 'reconciliation resumes rather than recovers/saves');
+
+  W2.fire('appmessage', { payload: {
+    PROTO: 2, SID: sid, SEQ: 3, CMD: 3, WSTATE: 1, ACTIVE: 90
+  } });
+  var w2 = makeWalker(W2, t0 + 7200, -31.96, 115.86);
+  for (i = 0; i < 8; i++) w2.step(2.5, 5, 20);
+  W2.fire('appmessage', { payload: {
+    PROTO: 2, SID: sid, SEQ: 4, CMD: 4, WSTATE: 3, ACTIVE: 130, STEPS: 300
+  } });
+  var r = storedRuns(W2)[0];
+  assert.strictEqual(r.sid, sid);
+  assert(!/\(recovered\)$/.test(r.name), 'continued session is saved normally');
+  console.log('scenario 20 (long-pause watch reconciliation) OK');
+})();
+
+/* =======================================================================
+ * Scenario 21: hostile page data, secret minimisation, corrupt-store safety,
+ * and the upload abort path.
+ * ===================================================================== */
+(function scenario21() {
+  var W = makeWorld();
+  var attack = '</script><script>globalThis.RUNLOG_PWNED=1</script>\u2028\u2029';
+  W.store['runlog.log'] = JSON.stringify([[1750000000, attack]]);
+  W.store['runlog.cfg'] = JSON.stringify({
+    preset: 'fittrackee', url: 'https://private.test',
+    auth: 'Bearer UNIQUE_AUTH_SECRET', key: 'UNIQUE_KEY_SECRET',
+    user: 'runner@example.test', pass: 'UNIQUE_PASSWORD_SECRET'
+  });
+  W.boot(); W.fire('ready', {}); W.fire('showConfiguration', {});
+  var page = openedHtml(W.opened[0]);
+  assert(page.indexOf(attack) < 0, 'hostile log cannot close the inline script');
+  assert(page.indexOf('\\u003c/script>\\u003cscript>') >= 0,
+         'script-breaking less-than characters are escaped before HTML parsing');
+  ['UNIQUE_AUTH_SECRET', 'UNIQUE_KEY_SECRET', 'UNIQUE_PASSWORD_SECRET'].forEach(function (s) {
+    assert(page.indexOf(s) < 0, 'page source excludes saved secret ' + s);
+  });
+  assert(page.indexOf('"hasAuth":true') >= 0 && page.indexOf('"hasKey":true') >= 0 &&
+         page.indexOf('"hasPass":true') >= 0, 'presence flags preserve secret-edit UX');
+
+  W.store['runlog.ftok'] = 'TOKEN_STAYS';
+  W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
+    act: 'cfg', cfg: {
+      preset: 'fittrackee', url: 'https://private.test',
+      user: 'runner@example.test', name: 'new-name', fmt: 'gpx',
+      auth: '', authSet: false, clearAuth: false,
+      key: '', keySet: false, clearKey: false,
+      pass: '', passSet: false, clearPass: false
+    }
+  })) });
+  var kept = JSON.parse(W.store['runlog.cfg']);
+  assert.strictEqual(kept.auth, 'Bearer UNIQUE_AUTH_SECRET', 'blank secret field keeps saved authorization');
+  assert.strictEqual(kept.key, 'UNIQUE_KEY_SECRET', 'blank secret field keeps saved key');
+  assert.strictEqual(kept.pass, 'UNIQUE_PASSWORD_SECRET', 'blank secret field keeps saved password');
+  assert.strictEqual(W.store['runlog.ftok'], 'TOKEN_STAYS',
+                     'unrelated settings edit preserves a valid FitTrackee token');
+
+  // An aborted request must release the upload mutex so a retry can start.
+  W.store['runlog.runs'] = JSON.stringify([{
+    name: 'Abort test', start: 1750000000000, sid: 77, act: 0,
+    dist: 100, dur: 30, mov: 30, avgp: 300, avgHr: 0, maxHr: 0,
+    egain: 0, steps: 0, up: 0,
+    pts: [[1750000000,-31.95,115.85,'',0,0,0],
+          [1750000030,-31.95,115.851,'',0,0,0]]
+  }]);
+  W.store['runlog.cfg'] = JSON.stringify({ preset: 'custom', url: 'https://abort.test/up' });
+  W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', id: 77 })) });
+  assert.strictEqual(W.xhrs.length, 1, 'first upload started');
+  W.xhrs[0].abort();
+  W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'retry', id: 77 })) });
+  assert.strictEqual(W.xhrs.length, 2, 'upload can retry after abort');
+  W.xhrs[1].respond(201);
+
+  var C = makeWorld();
+  C.store['runlog.runs'] = '{malformed';
+  C.boot(); C.fire('ready', {});
+  assert.strictEqual(C.store['runlog.runs'], '{malformed', 'corrupt primary is never treated as empty');
+  assert.strictEqual(C.store['runlog.runs.corrupt'], '{malformed', 'raw malformed copy is retained');
+  C.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({ act: 'clear' })) });
+  assert.deepStrictEqual(storedRuns(C), [], 'explicit clear can unblock a corrupt store');
+  assert(!C.store['runlog.runs.corrupt'], 'explicit clear removes the raw backup');
+  console.log('scenario 21 (hostile page data, secrets, corruption, XHR abort) OK');
+})();
+
+/* =======================================================================
+ * Scenario 22: HR average is weighted by source time, not GPS point count.
+ * ===================================================================== */
+(function scenario22() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751000000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  W.fire('appmessage', { payload: { HR: 100, SAMPLET: t0 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  var i;
+  for (i = 0; i < 12; i++) {
+    w.step(3, 5, 20);
+    W.fire('appmessage', { payload: { HR: 100, SAMPLET: t0 + (i + 1) * 5 } });
+  }
+  W.fire('appmessage', { payload: { HR: 180, SAMPLET: t0 + 60 } });
+  for (i = 0; i < 10; i++) {
+    w.step(3, 3, 20);
+    W.fire('appmessage', { payload: { HR: 180, SAMPLET: t0 + 60 + (i + 1) * 3 } });
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var r = storedRuns(W)[0];
+  assert(r.avgHr >= 125 && r.avgHr <= 129,
+         '60 s @100 + 30 s @180 is time-weighted to ~127, got ' + r.avgHr);
+  assert.strictEqual(r.maxHr, 180, 'peak comes from watch samples, not GPS density');
+  console.log('scenario 22 (time-weighted HR) OK');
+})();
+
+/* =======================================================================
+ * Scenario 23: malformed GPS fields and clocks cannot poison the route.
+ * ===================================================================== */
+(function scenario23() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751100000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { CMD: 1 } });
+
+  function fix(sec, lat, lon, acc, alt, stamp) {
+    W.clockMs = sec * 1000;
+    W.geoCb({
+      timestamp: stamp === undefined ? sec * 1000 : stamp,
+      coords: { latitude: lat, longitude: lon, accuracy: acc, altitude: alt }
+    });
+  }
+  fix(t0 + 1, -31.95, 115.85, -1, 20);       // negative accuracy
+  fix(t0 + 2, 91, 115.85, 8, 20);            // invalid latitude
+  fix(t0 + 3, -31.95, 181, 8, 20);           // invalid longitude
+  fix(t0 + 5, -31.95, 115.85, 8, 20);        // first valid anchor
+  fix(t0 + 10, 20, 20, 8, 20, (t0 + 3600) * 1000); // future-dated spatial outlier
+  fix(t0 + 15, -31.95, 115.8503, 8, Infinity);      // normal fix after it
+  W.fire('appmessage', { payload: { CMD: 4 } });
+
+  var r = storedRuns(W)[0];
+  assert.strictEqual(r.pts.length, 2, 'only valid, non-outlier fixes are stored');
+  assert.strictEqual(r.pts[1][3], '', 'non-finite altitude becomes missing, not NaN');
+  assert(r.dur < 60 && r.mov <= 20, 'future outlier did not pin the monotonic clock');
+  assert(!/NaN|Infinity/.test(JSON.stringify(r)), 'stored numeric fields remain finite and serializable');
+  assert.strictEqual(lastWith(W, 'SAVED').SAVED, 1, 'normal fixes still save after hostile input');
+  console.log('scenario 23 (GPS validation and timestamp commit ordering) OK');
+})();
+
+/* =======================================================================
+ * Scenario 24: Hike is end-to-end and its explicitly selected fixed profile reduces
+ * watch-bound telemetry without changing the stored GPS track. A long manual
+ * pause releases GPS, while resume reacquires it and starts a new segment.
+ * ===================================================================== */
+(function scenario24() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751200000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { MODE: 3, AUTOP: 1, SPLITP: 1 } });
+  assert.strictEqual(JSON.parse(W.store['runlog.set']).mode, 3, 'Hike mode stored');
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  W.fire('appmessage', { payload: { HR: 118, STEPS: 0, SAMPLET: t0 } });
+  W.msgs = [];
+
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  var steps = 0, i;
+  for (i = 1; i <= 10; i++) {
+    w.step(0.55, 5, 20 + i);   // steep-hike speed: above Hike's 0.30 m/s pause gate
+    if (i % 3 === 0) {
+      steps += 24;
+      W.fire('appmessage', { payload: {
+        HR: 118 + i, STEPS: steps, SAMPLET: t0 + i * 5
+      } });
+    }
+  }
+  assert(!msgsWith(W, 'APAUSE').some(function (m) { return m.APAUSE === 1; }),
+         'slow genuine hiking does not false-pause');
+
+  W.fire('appmessage', { payload: { CMD: 2 } });
+  assert(W.timers.some(function (t) { return t.delay === 60000; }),
+         'manual Hike pause arms one-minute GPS grace');
+  var stops = W.geoStops;
+  W.flushTimers();
+  assert.strictEqual(W.geoStops, stops + 1, 'long manual Hike pause releases GPS');
+  assert.strictEqual(lastWith(W, 'GPSOK').GPSOK, 0, 'watch is told GPS was released');
+
+  var starts = W.geoStarts;
+  W.fire('appmessage', { payload: { CMD: 3 } });
+  assert.strictEqual(W.geoStarts, starts + 1, 'Hike resume reacquires GPS');
+  for (i = 11; i <= 25; i++) {
+    w.step(1.1, 5, 30 + i);
+    if (i % 3 === 0) {
+      steps += 24;
+      W.fire('appmessage', { payload: {
+        HR: 125, STEPS: steps, SAMPLET: t0 + i * 5
+      } });
+    }
+  }
+
+  var liveN = msgsWith(W, 'DIST').length;
+  assert(liveN >= 8 && liveN <= 10,
+         'Hike sends roughly one live snapshot per 15 s, got ' + liveN);
+  W.fire('appmessage', { payload: { CMD: 4, HR: 125, STEPS: steps } });
+  var hike = storedRuns(W)[0];
+  assert.strictEqual(hike.act, 3, 'saved activity is Hike');
+  assert(/_hike$/.test(hike.name), 'Hike name template: ' + hike.name);
+  assert.strictEqual(hike.pts.length, 25, 'Hike power profile preserves every accepted GPS point');
+  assert(hike.pts.some(function (p) { return p[5] === 1; }),
+         'resume is preserved as an export segment boundary');
+  assert(hike.cad > 0, 'Hike keeps foot cadence');
+
+  W.fire('webviewclosed', { response: encodeURIComponent(JSON.stringify({
+    act: 'cfg', cfg: { preset: 'fittrackee', url: 'https://ft.hike.test',
+                       key: 'hike-token', auth: '', user: '', pass: '' }
+  })) });
+  W.fire('appmessage', { payload: { CMD: 7 } });
+  assert.strictEqual(W.xhrs.length, 1, 'Hike upload started');
+  assert(W.xhrs[0].body.indexOf('{"sport_id":3}') >= 0, 'FitTrackee Hiking sport id');
+  assert(W.xhrs[0].body.indexOf('<type>hiking</type>') >= 0, 'uploaded GPX is hiking');
+  console.log('scenario 24 (Hike mode and fixed power profile) OK');
+})();
+
+/* =======================================================================
+ * Scenario 25: Run and Ride remain predictable beyond one hour: live stats,
+ * health freshness and accuracy reporting never silently change cadence.
+ * Every manual-pause mode gets the GPS release grace.
+ * ===================================================================== */
+(function scenario25() {
+  function exercise(act, label, speed, testPause) {
+    var W = makeWorld(); W.boot(); W.fire('ready', {});
+    var t0 = 1751300000 + act * 10000;
+    W.clockMs = t0 * 1000;
+    W.fire('appmessage', { payload: { MODE: act, AUTOP: 0, SPLITP: 0 } });
+    W.fire('appmessage', { payload: { CMD: 1 } });
+    assert(W.store['runlog.inprogress'], label + ' checkpoint created');
+    assert.strictEqual(W.intervalCalls, 0,
+                       label + ' uses no fixed polling intervals');
+    assert.strictEqual(W.store['runlog.inprogress.live'], undefined,
+                       label + ' full checkpoint is not followed by a duplicate heartbeat write');
+
+    var w = makeWalker(W, t0, -31.95, 115.85);
+    for (var i = 0; i < 6; i++) w.step(speed, 5, 20, 8);
+    assert.strictEqual(msgsWith(W, 'DIST').length, 6,
+                       label + ' starts with five-second live updates');
+
+    // Advance the same continuous session beyond one hour without fabricating
+    // distance; elapsed time must not change the selected mode's power profile.
+    w.step(0, 3575, 20, 8);
+    W.msgs = [];
+    for (i = 0; i < 12; i++) w.step(speed, 5, 20, i % 2 ? 8 : 10);
+    var live = msgsWith(W, 'DIST');
+    assert.strictEqual(live.length, 12,
+                       label + ' retains five-second live updates beyond one hour');
+    assert.strictEqual(msgsWith(W, 'ACC').length, 12,
+                       label + ' retains its normal accuracy reporting beyond one hour');
+
+    if (testPause) {
+      W.fire('appmessage', { payload: { CMD: 2 } });
+      assert(W.timers.some(function (t) { return t.delay === 60000; }),
+             label + ' manual pause gets a one-minute GPS grace');
+      var stops = W.geoStops;
+      W.flushTimers();
+      assert.strictEqual(W.geoStops, stops + 1,
+                         label + ' long manual pause releases GPS');
+      var starts = W.geoStarts;
+      W.fire('appmessage', { payload: { CMD: 3 } });
+      assert.strictEqual(W.geoStarts, starts + 1,
+                         label + ' resume reacquires GPS');
+      w.step(speed, 5, 20, 8);
+    }
+
+    W.fire('appmessage', { payload: { CMD: 4 } });
+    var saved = storedRuns(W)[0];
+    assert.strictEqual(saved.act, act, label + ' type preserved');
+    assert(saved.pts.length >= 19 + (testPause ? 1 : 0),
+           label + ' keeps accepted GPS points beyond one hour');
+  }
+
+  exercise(0, 'Run', 3.0, true);
+  exercise(2, 'Ride', 8.0, true);
+  console.log('scenario 25 (fixed hour-plus behavior and all-mode pause GPS release) OK');
+})();
+
+
+/* =======================================================================
+ * 26 — validated HR peak, per-run HR settings, recorded activity on the wire
+ * ===================================================================== */
+(function scenario26() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751400000;
+  W.clockMs = t0 * 1000;
+
+  // Max HR 200 while recording; changed to 150 afterwards. Retyping the run must
+  // NOT rescale its VO2max against the new setting.
+  W.fire('appmessage', { payload: { MODE: 0, AUTOP: 0, SPLITP: 0, MHR: 200, RHR: 50 } });
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+
+  // Steady 3 m/s, long enough to clear the two-minute warm-up cut and reach the
+  // 20-point minimum the estimator needs. HR is the watch's smoothed mean; HRPK
+  // is the corroborated raw peak. A lone sensor spike is rejected on-watch,
+  // while a real adjacent-sample peak can still exceed the display mean.
+  var i;
+  for (i = 0; i < 90; i++) {
+    W.fire('appmessage', { payload: { HR: 160, HRPK: i >= 60 ? 186 : 160,
+                                      STEPS: i * 8 } });
+    w.step(3.0, 5, 20, 8);
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });
+
+  var runs = storedRuns(W);
+  assert.strictEqual(runs.length, 1, 'run saved');
+  var run = runs[0];
+
+  // --- the validated raw peak beats the smoothed stream ---
+  assert.strictEqual(run.maxHr, 186,
+    'maxHr comes from corroborated HRPK (186), not the smoothed 160');
+  var summary = lastWith(W, 'SAVED');
+  assert.strictEqual(summary.MAXHR, 186, 'watch summary carries the validated peak');
+
+  // --- the watch is told which activity this actually was ---
+  assert.strictEqual(summary.MODE, 0, 'summary carries the recorded activity');
+
+  // --- HR settings are captured on the record ---
+  assert.strictEqual(run.maxHrSet, 200, 'run records the max HR in force at the time');
+  assert.strictEqual(run.restHrSet, 50, 'run records the resting HR in force at the time');
+  var vo2 = run.vo2max;
+  assert(vo2 > 0, 'a steady run produces a VO2max estimate (got ' + vo2 + ')');
+
+  // --- change the setting, retype twice, confirm the estimate is unchanged ---
+  W.fire('appmessage', { payload: { MHR: 150, RHR: 0 } });
+  var id = run.sid || run.start;
+  W.fire('webviewclosed', { response: JSON.stringify({ act: 'retype', id: id, to: 3 }) });
+  var after = storedRuns(W)[0];
+  assert.strictEqual(after.act, 3, 'retyped to hike');
+  W.fire('webviewclosed', { response: JSON.stringify({ act: 'retype', id: after.sid || after.start, to: 0 }) });
+  var back = storedRuns(W)[0];
+  assert.strictEqual(back.act, 0, 'retyped back to run');
+  assert.strictEqual(back.vo2max, vo2,
+    'VO2max recomputes from the STORED max HR, so it survives a settings change (' +
+    back.vo2max + ' vs original ' + vo2 + ')');
+
+  console.log('scenario 26 (validated HR peak, per-run HR settings, summary MODE) OK');
+})();
+
+/* =======================================================================
+ * 27 — Basic credentials are UTF-8, not 8-bit truncated
+ * ===================================================================== */
+(function scenario27() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751500000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { MODE: 0, AUTOP: 0, SPLITP: 0 } });
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 6; i++) w.step(3.0, 5, 20, 8);
+  W.fire('appmessage', { payload: { CMD: 4 } });
+
+  // A password with non-ASCII characters, which is entirely ordinary outside the
+  // English-speaking world, plus an emoji to exercise the surrogate-pair path.
+  var user = 'j\u00f6rn';
+  var pass = 'p\u00e4ssw\u00f6rd-\u65e5\u672c\u8a9e-\ud83d\ude80';
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'cfg',
+    cfg: { preset: 'webdav', url: 'https://dav.test/runs/', auth: user + ':' + pass, authSet: 1 }
+  }) });
+
+  var run = storedRuns(W)[0];
+  W.fire('webviewclosed', { response: JSON.stringify({ act: 'retry', id: run.sid || run.start }) });
+
+  var req = W.xhrs[W.xhrs.length - 1];
+  assert(req, 'an upload request was built');
+  var hdr = req.headers.Authorization;
+  assert(hdr && hdr.slice(0, 6) === 'Basic ', 'Basic scheme used');
+  var decoded = Buffer.from(hdr.slice(6), 'base64').toString('utf8');
+  assert.strictEqual(decoded, user + ':' + pass,
+    'credential round-trips as UTF-8 (RFC 7617); got ' + JSON.stringify(decoded));
+  assert.strictEqual(Buffer.from(hdr.slice(6), 'base64').length,
+                     Buffer.byteLength(user + ':' + pass, 'utf8'),
+    'encoded length is the UTF-8 byte length, not one byte per UTF-16 unit');
+
+  req.respond(201, '');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'upload recorded as ok');
+
+  // Malformed UTF-16 should never produce malformed UTF-8 on the wire. JavaScript
+  // strings can contain a lone surrogate even though a normal keyboard cannot.
+  var malformedUser = 'bad\ud800';
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'cfg',
+    cfg: { preset: 'webdav', url: 'https://dav.test/runs/',
+           auth: malformedUser + ':x', authSet: 1 }
+  }) });
+  W.fire('webviewclosed', { response: JSON.stringify({ act: 'retry', id: run.sid || run.start }) });
+  var req2 = W.xhrs[W.xhrs.length - 1];
+  var repaired = Buffer.from(req2.headers.Authorization.slice(6), 'base64').toString('utf8');
+  assert.strictEqual(repaired, 'bad\ufffd:x', 'lone surrogate is replaced with U+FFFD');
+  req2.respond(201, '');
+
+  console.log('scenario 27 (UTF-8 Basic credentials) OK');
+})();
+
+/* =======================================================================
+ * 28 — Endurain uses its least-privilege upload API key endpoint.
+ * ===================================================================== */
+(function scenario28() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1751600000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { MODE: 3, AUTOP: 0, SPLITP: 0 } });
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 8; i++) w.step(2.0, 5, 20 + i, 8);
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var run = storedRuns(W)[0];
+
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'cfg',
+    cfg: {
+      preset: 'endurain', url: 'https://endurain.home/runlog/api/v1/docs/',
+      key: 'endurain_upload_only_123', keySet: 1, fmt: 'gpx'
+    }
+  }) });
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'retry', id: run.sid || run.start
+  }) });
+
+  var x = W.xhrs[W.xhrs.length - 1];
+  assert.strictEqual(x.method, 'POST');
+  assert.strictEqual(x.url, 'https://endurain.home/runlog/api/v1/activities/create/upload');
+  assert.strictEqual(x.headers['X-API-Key'], 'endurain_upload_only_123');
+  assert(!x.headers.Authorization && !x.headers['X-Client-Type'],
+         'API-key upload needs neither bearer nor client-type headers');
+  assert(/^multipart\/form-data; boundary=/.test(x.headers['Content-Type']));
+  assert(x.body instanceof Uint8Array, 'Endurain text uploads use deterministic UTF-8 bytes');
+  var gpxMultipart = Buffer.from(x.body);
+  assert(gpxMultipart.indexOf(Buffer.from('name="file"')) >= 0 &&
+         gpxMultipart.indexOf(Buffer.from('<gpx ')) >= 0,
+         'Endurain receives the selected activity file as multipart');
+  assert.strictEqual(x.timeout, 90000, 'synchronous Endurain import gets a long-file timeout');
+  x.respond(202, '');
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'Endurain 202 is accepted as success');
+  assert.strictEqual(storedRuns(W)[0].upMeta.dest, 'endurain', 'destination recorded');
+
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'cfg',
+    cfg: {
+      preset: 'endurain', url: 'https://endurain.home',
+      key: '', keySet: 0, clearKey: 0, fmt: 'fit'
+    }
+  }) });
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'retry', id: run.sid || run.start
+  }) });
+  var xf = W.xhrs[W.xhrs.length - 1];
+  assert.strictEqual(xf.headers['X-API-Key'], 'endurain_upload_only_123',
+                     'blank settings key keeps the saved Endurain key');
+  assert(xf.body instanceof Uint8Array, 'FIT multipart upload remains binary');
+  var fitMultipart = Buffer.from(xf.body);
+  assert(fitMultipart.indexOf(Buffer.from('filename="' + run.name + '.fit"')) >= 0 &&
+         fitMultipart.indexOf(Buffer.from('.FIT')) >= 0,
+         'Endurain FIT multipart contains the filename and FIT payload');
+  xf.respond(201, '');
+  assert.strictEqual(storedRuns(W)[0].upMeta.fmt, 'fit', 'successful FIT format recorded');
+
+  W.fire('webviewclosed', { response: JSON.stringify({
+    act: 'retry', id: run.sid || run.start
+  }) });
+  var xe = W.xhrs[W.xhrs.length - 1];
+  xe.respond(403, JSON.stringify({ detail: 'API key lacks activities:upload scope' }));
+  var elog = JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; });
+  assert(elog.some(function (m) {
+    return /HTTP 403.*activities:upload scope/.test(m);
+  }), 'Endurain response detail is visible in the phone log');
+
+  console.log('scenario 28 (Endurain API-key upload) OK');
+})();
+
+/* =======================================================================
+ * 29 — legacy migration is atomic; completed route chunks are independently
+ * salvageable and an orphan left before the index commit is garbage-collected.
+ * ===================================================================== */
+(function scenario29() {
+  var pts = [], t0 = 1751700000, lat = -31.95, lon = 115.85;
+  for (var i = 0; i < 205; i++) {
+    pts.push([t0 + i * 5, lat, lon + i * 0.0001,
+              20 + Math.min(i, 120) * 0.1, 145, 0, 166]);
+  }
+  var legacy = [{
+    name: 'Legacy long hike', start: t0 * 1000, sid: 909090, act: 3,
+    dist: 2100, dur: 1025, active: 1020, mov: 1020, avgp: 486,
+    avgHr: 145, maxHr: 145, maxHrSet: 190, restHrSet: 0,
+    hrArea: 147900, hrSecs: 1020, hrPeak: 145,
+    egain: 12, cad: 166, steps: 2822, mi: 0, up: 0,
+    splits: [], events: [[t0, 'start'], [t0 + 1025, 'stop']], pts: pts
+  }];
+  var legacyRaw = JSON.stringify(legacy);
+
+  var F = makeWorld();
+  F.store['runlog.runs'] = legacyRaw;
+  F.failStore = function (k) { return k.indexOf('runlog.j.') === 0; };
+  F.boot(); F.fire('ready', {});
+  assert.strictEqual(F.store['runlog.runs'], legacyRaw,
+                     'failed migration leaves the byte-for-byte legacy store authoritative');
+  assert.strictEqual(Object.keys(F.store).filter(function (k) {
+    return k.indexOf('runlog.j.') === 0;
+  }).length, 0, 'failed migration removes partial new chunks');
+
+  var W = makeWorld();
+  W.store['runlog.runs'] = legacyRaw;
+  W.store['runlog.j.orphan.0'] = 'uncommitted';
+  W.boot(); W.fire('ready', {});
+  var index = JSON.parse(W.store['runlog.runs']);
+  assert(index[0]._j && !index[0].pts && index[0]._j.chunks === 3,
+         'legacy route migrated to a three-chunk lightweight index');
+  assert.strictEqual(storedRuns(W)[0].pts.length, 205, 'migration round-trips every point');
+  assert(storedRuns(W)[0].analysis && storedRuns(W)[0].analysis.pacing,
+         'migration backfills post-workout analysis');
+  assert.strictEqual(storedRuns(W)[0].analysis.climbs.count, 1,
+                     'sustained climb is detected from the smoothed legacy track');
+  assert(!W.store['runlog.j.orphan.0'], 'uncommitted orphan chunk garbage-collected');
+
+  var lastKey = 'runlog.j.' + index[0]._j.id + '.2';
+  W.store[lastKey] = '{"v":1,"broken"';
+  W.fire('showConfiguration', {});
+  var page = openedHtml(W.opened[W.opened.length - 1]);
+  assert(page.indexOf('"journalWarning":{"damaged":1,"expected":205,"recovered":192}') >= 0,
+         'detail reports a damaged final chunk and the exact salvaged prefix');
+  assert(page.indexOf('"ptb":"') >= 0 && page.indexOf('"ptn":192') >= 0 &&
+         page.indexOf('"name":"Legacy long hike"') >= 0,
+         'one damaged chunk cannot erase the otherwise usable workout');
+
+  console.log('scenario 29 (atomic migration and chunk salvage) OK');
+})();
+
+/* =======================================================================
+ * 30 — the first phone WebView contains a very long activity without dropping
+ * a point. Expanding a row must not require an unsupported close/reopen cycle.
+ * ===================================================================== */
+(function scenario30() {
+  var W = makeWorld(), pts = [], t0 = 1751800000, sid = 303030;
+  for (var i = 0; i < 12000; i++) {
+    pts.push([t0 + i * 5, +(-31.95 + (i % 200) / 1e6).toFixed(6),
+              +(115.85 + i * 0.000012).toFixed(6),
+              +(20 + (i % 40) / 10).toFixed(1),
+              130 + (i % 20), i === 6000 ? 1 : 0, 108 + (i % 4)]);
+  }
+  W.store['runlog.runs'] = JSON.stringify([{
+    name: 'Long hike', start: t0 * 1000, sid: sid, act: 3,
+    dist: 144000, dur: 60000, active: 59800, mov: 59800, avgp: 415,
+    avgHr: 139, maxHr: 149, maxHrSet: 190, restHrSet: 0,
+    hrArea: 8312200, hrSecs: 59800, hrPeak: 149,
+    egain: 900, cad: 110, steps: 109633, mi: 0, up: 0,
+    hrv: { pre: { rmssd: 50 } }, pts: pts
+  }]);
+  W.boot(); W.fire('ready', {});
+  W.fire('showConfiguration', {});
+
+  var url = W.opened[W.opened.length - 1];
+  assert(url.indexOf('data:text/html;charset=utf-8,') === 0,
+         'phone receives one self-contained settings page');
+  assert(url.length < 900000,
+         'twelve-thousand-point detail stays below the known webview danger size');
+  assert(url.length < encodeURIComponent(JSON.stringify(pts)).length,
+         'complete detail page is smaller than percent-encoding the raw route alone');
+
+  var page = openedHtml(url);
+  var begin = page.indexOf('var RUNS = ') + 'var RUNS = '.length;
+  var end = page.indexOf(';\nvar CFG', begin);
+  var injected = JSON.parse(page.slice(begin, end))[0];
+  assert(!injected.pts && injected.ptn === pts.length && injected.ptb,
+         'every route sample is carried in the initial page as packed data');
+  assert(!injected.hrv, 'retired health metadata is removed during migration');
+
+  var restored = unpackPagePoints(injected);
+  assert.deepStrictEqual(restored, pts,
+                         'page-side expansion reproduces every stored sample losslessly');
+
+  console.log('scenario 30 (single-page lossless long-activity detail) OK');
+})();
+
+/* =======================================================================
+ * 31 — protocol-v3 watch journal: batches are durably ACKed, duplicate flushes
+ * deduplicate, and a phone that missed START reconstructs an honest route-less
+ * workout (including HR, steps and a manual lap) from STOP's full snapshot.
+ * ===================================================================== */
+(function scenario31() {
+  var W = makeWorld(), sid = 313131, t0 = 1752000000;
+  W.clockMs = (t0 + 180) * 1000;
+  W.boot(); W.fire('ready', {});
+  function rec(at, active, hr, peak, steps, state, lap) {
+    return [at&255,(at>>>8)&255,(at>>>16)&255,(at>>>24)&255,
+            active&255,(active>>>8)&255,hr,peak,
+            steps&255,(steps>>>8)&255,(steps>>>16)&255,(state&7)|(lap?128:0)];
+  }
+  var bytes = [].concat(rec(t0,0,125,125,0,1,0),
+                        rec(t0+60,60,135,138,300,1,0),
+                        rec(t0+120,120,145,148,620,1,1),
+                        rec(t0+180,180,150,152,900,3,0));
+  var flush = { PROTO:3, SID:sid, STARTTS:t0, ACTIVE:180, WSTATE:3,
+                WSAMPLES:bytes, WSFLUSH:1, DQ:1 };
+  W.fire('appmessage', { payload: flush });
+  assert.strictEqual(lastWith(W, 'WSACK').WSACK, t0 + 180,
+                     'flush ACK covers the last durably stored sample');
+  W.fire('appmessage', { payload: flush });              // retry before ACK reached watch
+  var pm = JSON.parse(W.store['runlog.prew.' + sid + '.meta']);
+  assert.strictEqual(pm.n, 4, 'repeated flush does not duplicate samples');
+  assert.strictEqual(pm.dq, 1, 'durable journal metadata retains the watch data-quality warning');
+
+  W.fire('appmessage', { payload: { PROTO:3, SID:sid, SEQ:7, CMD:4,
+    WSTATE:3, STARTTS:t0, ACTIVE:180, STEPS:900, MODE:0, DQ:0 } });
+  var r = storedRuns(W)[0];
+  assert(r && r.route === 0, 'missed START is reconstructed as route-less');
+  assert.strictEqual(r.dist, 0, 'journal reconstruction invents no distance');
+  assert.strictEqual(r.steps, 900, 'journal reconstruction retains steps');
+  assert.strictEqual(r.dq, 1, 'reconstructed workout retains the earlier data-quality warning');
+  assert(r.avgHr >= 135 && r.avgHr <= 150 && r.maxHr === 152,
+         'journal reconstruction derives HR average and corroborated peak');
+  assert.strictEqual(r.laps.length, 1, 'manual lap marker survives disconnection');
+  assert(r.events.some(function (e) { return e[1] === 'lap'; }), 'manual lap is in lifecycle journal');
+  assert.strictEqual(lastWith(W, 'ROUTE').ROUTE, 0, 'watch summary explicitly says no route');
+  console.log('scenario 31 (durable sensor journal and route-less reconstruction) OK');
+})();
+
+/* =======================================================================
+ * 32 — converting AUTO-PAUSE to manual pause is atomic on the phone: PAUSE
+ * clears the auto flag without a resume event or a fake active segment.
+ * ===================================================================== */
+(function scenario32() {
+  var W = makeWorld(), sid = 323232, t0 = 1752100000;
+  W.clockMs = t0 * 1000; W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload: { MODE:0, AUTOP:1, PROTO:3, SID:sid,
+    SEQ:1, CMD:1, WSTATE:1, STARTTS:t0, ACTIVE:0 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 6; i++) w.step(2.5, 5, 8);
+  w.step(0.2, 5, 8); w.step(0.2, 5, 8); w.step(0.2, 5, 8);
+  assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1, 'fixture reached auto-pause');
+  var before = lastWith(W, 'ACTIVE').ACTIVE;
+  W.fire('appmessage', { payload: { PROTO:3, SID:sid, SEQ:2, CMD:2,
+    WSTATE:2, APAUSE:0, STARTTS:t0, ACTIVE:before } });
+  var manual = lastWith(W, 'ACK');
+  assert.strictEqual(manual.APAUSE, 0, 'manual pause clears auto-pause flag');
+  assert.strictEqual(manual.WSTATE, 2, 'session remains paused throughout conversion');
+  assert.strictEqual(manual.ACTIVE, before, 'conversion does not add fake active time');
+  W.fire('appmessage', { payload: { PROTO:3, SID:sid, SEQ:3, CMD:4,
+    WSTATE:3, STARTTS:t0, ACTIVE:before } });
+  var ev = storedRuns(W)[0].events.map(function (x) { return x[1]; });
+  var ai = ev.indexOf('auto_pause'), pi = ev.indexOf('pause');
+  assert(ai >= 0 && pi === ai + 1, 'manual pause directly follows auto-pause');
+  assert(ev.slice(ai, pi + 1).indexOf('resume') < 0 && ev.slice(ai, pi + 1).indexOf('auto_resume') < 0,
+         'no hidden resume segment is created');
+  console.log('scenario 32 (atomic auto-to-manual pause) OK');
+})();
+
+/* =======================================================================
+ * 33 — workout targets migrate independently of upload settings and are sent
+ * to the watch in canonical seconds/metres values only when changed.
+ * ===================================================================== */
+(function scenario33() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {}); W.msgs.length = 0;
+  W.fire('webviewclosed', { response: JSON.stringify({ act:'cfg', cfg:{
+    preset:'custom', url:'', name:'', fmt:'gpx', target:{type:4,lo:300,hi:330,value:0}
+  } }) });
+  var m = lastWith(W, 'TGTYPE');
+  assert(m && m.PROTO === 3 && m.TGTYPE === 4 && m.TGLO === 300 && m.TGHI === 330,
+         'changed pace target is synchronised in canonical seconds/km');
+  var c = JSON.parse(W.store['runlog.cfg']);
+  assert.deepStrictEqual(c.target, {type:4,lo:300,hi:330,value:0}, 'target persists with config');
+  W.msgs.length = 0;
+  W.fire('webviewclosed', { response: JSON.stringify({ act:'cfg', cfg:{
+    preset:'custom', url:'https://new.test', name:'', fmt:'tcx', target:c.target
+  } }) });
+  assert.strictEqual(lastWith(W, 'TGTYPE'), null,
+                     'unrelated export edit creates no unnecessary target radio message');
+  console.log('scenario 33 (target configuration and radio discipline) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');

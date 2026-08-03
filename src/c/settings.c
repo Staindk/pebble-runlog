@@ -10,8 +10,10 @@ static SimpleMenuItem s_items[7];
 static SimpleMenuSection s_sections[1];
 
 static void prv_fill_subtitles(void) {
-  snprintf(s_sub_mode,   sizeof(s_sub_mode),
-           g_set.mode == MODE_WALK ? "Walk" : g_set.mode == MODE_CYCLE ? "Ride" : "Run");
+  const char *mode = g_set.mode == MODE_WALK ? "Walk"
+                   : g_set.mode == MODE_CYCLE ? "Ride"
+                   : g_set.mode == MODE_HIKE ? "Hike" : "Run";
+  snprintf(s_sub_mode, sizeof(s_sub_mode), "%s", mode);
   snprintf(s_sub_units,  sizeof(s_sub_units),  g_set.miles ? "Miles" : "Kilometres");
   snprintf(s_sub_autop,  sizeof(s_sub_autop),  g_set.autopause ? "On" : "Off");
   if (g_set.splits) {
@@ -68,19 +70,27 @@ static void prv_load(Window *window) {
   layer_add_child(root, simple_menu_layer_get_layer(s_menu));
 }
 
+/* Frees only what prv_load built; the Window itself is released in
+ * settings_deinit. window_destroy() from inside the window's own unload handler
+ * hands the stack a pointer it is still unwinding through. */
 static void prv_unload(Window *window) {
   (void)window;
   simple_menu_layer_destroy(s_menu);
-  window_destroy(s_win);
-  s_win = NULL;
+  s_menu = NULL;
 }
 
 void settings_window_push(void) {
-  if (s_win) return;
-  s_win = window_create();
-  window_set_window_handlers(s_win, (WindowHandlers) {
-    .load = prv_load,
-    .unload = prv_unload,
-  });
+  if (!s_win) {
+    s_win = window_create();
+    window_set_window_handlers(s_win, (WindowHandlers) {
+      .load = prv_load,
+      .unload = prv_unload,
+    });
+  }
+  if (window_stack_contains_window(s_win)) return;   // already showing
   window_stack_push(s_win, true);
+}
+
+void settings_deinit(void) {
+  if (s_win) { window_destroy(s_win); s_win = NULL; }
 }

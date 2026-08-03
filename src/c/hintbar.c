@@ -18,6 +18,7 @@ static uint32_t prv_res(HbIcon ic) {
     case HB_RUN:      return RESOURCE_ID_ICON_RUN;
     case HB_WALK:     return RESOURCE_ID_ICON_WALK;
     case HB_BIKE:     return RESOURCE_ID_ICON_BIKE;
+    case HB_HIKE:     return RESOURCE_ID_ICON_HIKE;
     case HB_UP:       return RESOURCE_ID_ICON_UP;
     case HB_DOWN:     return RESOURCE_ID_ICON_DOWN;
     case HB_MENU:     return RESOURCE_ID_ICON_MENU;
@@ -92,6 +93,7 @@ void hintbar_set_icons(Layer *layer, HbIcon up, HbIcon sel,
                        HbIcon sel_sub, HbIcon down) {
   if (!layer) return;
   HintModel *m = (HintModel *)layer_get_data(layer);
+  if (m->up == up && m->sel == sel && m->sel_sub == sel_sub && m->down == down) return;
   m->up = up; m->sel = sel; m->sel_sub = sel_sub; m->down = down;
   layer_mark_dirty(layer);
 }

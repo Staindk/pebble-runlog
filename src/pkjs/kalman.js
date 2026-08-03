@@ -63,8 +63,8 @@ function makeGpsFilter(opts) {
       var fx = step(x, Px, mx, dt, R);
       var fy = step(y, Py, my, dt, R);
       return {
-        lat: +(lat0 + fy / mLat).toFixed(6),
-        lon: +(lon0 + fx / mLon).toFixed(6),
+        lat: Math.round((lat0 + fy / mLat) * 1e6) / 1e6,
+        lon: Math.round((lon0 + fx / mLon) * 1e6) / 1e6,
         speed: Math.sqrt(x[1] * x[1] + y[1] * y[1])
       };
     },

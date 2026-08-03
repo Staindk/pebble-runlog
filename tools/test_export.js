@@ -11,21 +11,26 @@ var vm = require('vm');
 var path = require('path');
 var assert = require('assert');
 
+var root = path.join(__dirname, '..');
+var pageBuild = require('./build_page');
 var html = fs.readFileSync(path.join(__dirname, 'page.html'), 'utf8');
+assert.strictEqual(fs.readFileSync(path.join(root, 'src', 'pkjs', 'page.js'), 'utf8'),
+                   pageBuild.render(root),
+                   'generated src/pkjs/page.js is stale; run node tools/build_page.js');
 var m = html.match(/<script>([\s\S]*)<\/script>/);
 assert(m, 'script block found');
 var script = m[1];
-// inject the shared exporters exactly as build_page.js does, so the page's
-// TCX/FIT download paths are exercised here too
-var rlExp = ['tcx', 'fit'].map(function (n) {
-  return fs.readFileSync(path.join(__dirname, '..', 'src', 'pkjs', n + '.js'), 'utf8');
-}).join('\n');
-script = script.replace('/*__RUNLOG_EXPORTERS__*/', rlExp);
+// Inject via build_page.js itself rather than a second copy of the list, so the
+// page's GPX/TCX/FIT download paths and its chart smoother are exercised here as
+// the exact code the bundle ships.
+script = pageBuild.inject(script, root);
 
 // the credential inputs must defuse phone keyboards
 assert(/id="cfguser"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'email: no autocapitalize');
 assert(/id="cfguser"[^>]*\n?[^>]*inputmode="email"/.test(html), 'email keyboard layout');
 assert(/id="cfgpass"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'password: no autocapitalize');
+assert(/id="cfgurl"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'URL: no autocapitalize');
+assert(/id="cfgkey"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'API key: no autocapitalize');
 
 /* ---------------- sample data ---------------- */
 function mkPts() {
@@ -42,11 +47,52 @@ function mkPts() {
   }
   return pts;
 }
+function packPts(pts) {
+  var bytes = [], prev = null;
+  function zz(n) { n = Math.round(n); return n < 0 ? -n * 2 - 1 : n * 2; }
+  function vu(n) {
+    n = Math.floor(n);
+    while (n >= 128) {
+      bytes.push((n % 128) + 128);
+      n = Math.floor(n / 128);
+    }
+    bytes.push(n);
+  }
+  function vi(n) { vu(zz(n)); }
+  function ec(v) {
+    return (v === '' || v === null || v === undefined) ? 0 :
+           zz(Math.round(Number(v) * 10)) + 1;
+  }
+  pts.forEach(function (p) {
+    var cur = [Math.round(p[0]), Math.round(p[1] * 1e6), Math.round(p[2] * 1e6),
+               ec(p[3]), Math.round(p[4] || 0), Math.round(p[5] || 0),
+               Math.round(p[6] || 0)];
+    if (!prev) {
+      vu(cur[0]); vi(cur[1]); vi(cur[2]); vu(cur[3]);
+      vu(cur[4]); vu(cur[5]); vu(cur[6]);
+    } else {
+      vi(cur[0] - prev[0]); vi(cur[1] - prev[1]); vi(cur[2] - prev[2]);
+      vi(cur[3] - prev[3]); vi(cur[4] - prev[4]); vu(cur[5]);
+      vi(cur[6] - prev[6]);
+    }
+    prev = cur;
+  });
+  return Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+}
 var RUN_A = {
   name: 'Run 2026-06-10 06.45', start: 1750000000000,
   dist: 1340, dur: 480, mov: 460, avgp: 343, avgHr: 151, maxHr: 162, vo2max: 52,
   egain: 12, cad: 168, steps: 1290, mi: 0,
   splits: [{ d: 1000, s: 343, hr: 150 }, { d: 340, s: 117, hr: 154 }],
+  analysis: {
+    stopped: 20, pauses: 1,
+    zones: { maxHr: 190, secs: [0, 60, 250, 130, 20], total: 460, coverage: 100 },
+    pacing: { fullSplits: 3, cv: 2.4, rangePct: 5.1,
+              firstHalf: 350, secondHalf: 336, trendPct: -4.0 },
+    climbs: { count: 1, top: [{ gain: 12, dist: 620, dur: 185, grade: 1.9 }] },
+    context: { savedPeers: 2, previous: { pacePct: 3.2, hrDelta: -2 },
+               records: ['fastest_split'] }
+  },
   up: 1, pts: mkPts()
 };
 var RUN_B = {
@@ -62,7 +108,17 @@ var RUN_C = {   // a bike ride: speed display, 5-km splits
   splits: [{ d: 5000, s: 900, hr: 140 }, { d: 2200, s: 407, hr: 142 }],
   up: 0, pts: mkPts()
 };
-var CFG = { auto: 1, preset: 'custom', url: 'https://example.test/runs', auth: '', key: '', name: 'morning-{activity}' };
+var RUN_D = {   // a hike: pace, steps/cadence, one-km splits
+  name: 'Hike 2026-06-11 08.20', start: 1750100000000,
+  dist: 4200, dur: 3600, mov: 3300, avgp: 786, avgHr: 121, maxHr: 145,
+  egain: 310, cad: 106, steps: 5830, mi: 0, act: 3,
+  splits: [{ d: 1000, s: 780, hr: 118 }, { d: 1000, s: 750, hr: 123 },
+           { d: 1000, s: 810, hr: 126 }, { d: 1000, s: 790, hr: 121 },
+           { d: 200, s: 170, hr: 119 }],
+  up: 0, pts: mkPts()
+};
+var CFG = { auto: 1, preset: 'custom', url: 'https://example.test/runs',
+            auth: '', key: '', name: 'morning-{activity}', hasTarget: true };
 
 /* ---------------- DOM stub ---------------- */
 function makeDom() {
@@ -132,14 +188,15 @@ function makeDom() {
   return dom;
 }
 
-function boot(runs, cfg, miles, initial, logl) {
+function boot(runs, cfg, miles, initial, logl, detail) {
   var dom = makeDom();
   var src = script
     .replace('"__RUNLOG_RUNS__"', function () { return JSON.stringify(runs); })
     .replace('"__RUNLOG_CFG__"', function () { return JSON.stringify(cfg); })
     .replace('"__RUNLOG_MILES__"', function () { return miles ? 'true' : 'false'; })
     .replace('"__RUNLOG_INITIAL__"', function () { return JSON.stringify(initial || 0); })
-    .replace('"__RUNLOG_LOG__"', function () { return JSON.stringify(logl || []); });
+    .replace('"__RUNLOG_LOG__"', function () { return JSON.stringify(logl || []); })
+    .replace('"__RUNLOG_DETAIL__"', function () { return detail ? 'true' : 'false'; });
   assert(src.indexOf('__RUNLOG_') < 0, 'placeholders replaced');
   vm.createContext(dom.sandbox);
   vm.runInContext(src, dom.sandbox);
@@ -175,7 +232,7 @@ function lastAction(dom) {
 
   // list view
   var sub = dom.ids.subline.innerHTML;
-  assert(sub.indexOf('2 saved runs') === 0, 'subline: ' + sub);
+  assert(sub.indexOf('2 saved activities') === 0, 'subline: ' + sub);
   var list = dom.ids.list.innerHTML;
   assert(list.indexOf(RUN_A.name) >= 0 && list.indexOf(RUN_B.name) >= 0, 'both runs listed');
   assert(list.indexOf(RUN_A.name) < list.indexOf(RUN_B.name), 'newest first');
@@ -190,6 +247,10 @@ function lastAction(dom) {
   assert.strictEqual(dom.ids.cfgurl.value, CFG.url);
   assert.strictEqual(dom.ids.cfgurlrow.style.display, '', 'url row visible for custom');
   assert.strictEqual(dom.ids.cfgkeyrow.style.display, 'none', 'key row hidden for custom');
+  assert.strictEqual(dom.ids.cfgtarget.value, '0', 'workout target defaults off');
+  dom.ids.cfgtarget.value = '2'; S.targetUi();
+  assert.strictEqual(dom.ids.targettime.style.display, '', 'duration target fields shown');
+  assert.strictEqual(dom.ids.targetdist.style.display, 'none', 'unselected target fields hidden');
 
   dom.ids.cfgpreset.value = 'intervals'; S.cfgUi();
   assert.strictEqual(dom.ids.cfgurlrow.style.display, 'none', 'url row hidden for intervals');
@@ -206,6 +267,12 @@ function lastAction(dom) {
   assert.strictEqual(dom.ids.cfgpassrow.style.display, '', 'fittrackee shows password row');
   assert.strictEqual(dom.ids.cfgkeyrow.style.display, 'none', 'no manual token field');
   assert.strictEqual(dom.ids.cfgauthrow.style.display, 'none', 'fittrackee hides auth row');
+  dom.ids.cfgpreset.value = 'endurain'; S.cfgUi();
+  assert.strictEqual(dom.ids.cfgurlrow.style.display, '', 'endurain shows instance URL');
+  assert.strictEqual(dom.ids.cfgkeyrow.style.display, '', 'endurain shows API key');
+  assert.strictEqual(dom.ids.cfgauthrow.style.display, 'none', 'endurain hides generic auth');
+  assert(dom.ids.cfgurl.placeholder.indexOf('endurain.') >= 0, 'endurain URL hint');
+  assert(dom.ids.cfgkeyhint.textContent.indexOf('activities:upload') >= 0, 'endurain least-privilege scope hint');
   dom.ids.cfgpreset.value = 'custom'; S.cfgUi();
   assert.strictEqual(dom.ids.cfguserrow.style.display, 'none', 'email row hidden again');
 
@@ -222,8 +289,35 @@ function lastAction(dom) {
   assert(stats.indexOf('7:40') >= 0, 'moving time 460 s');
   assert(stats.indexOf('151') >= 0 && stats.indexOf('162 max') >= 0, 'HR stats');
   assert(stats.indexOf('12 m') >= 0, 'elev gain');
+  var an = dom.ids.analysis.innerHTML;
+  assert(an.indexOf('Very steady') >= 0 && an.indexOf('4.0% faster finish') >= 0,
+         'pacing consistency and finish strength rendered');
+  assert(an.indexOf('3.2% faster') >= 0 && an.indexOf('Fastest full split') >= 0,
+         'previous-workout comparison and saved-record badge rendered');
+  assert(dom.ids.zones.innerHTML.indexOf('Z5 90%+') >= 0, 'five HR zones rendered');
+  assert.strictEqual(dom.ids.zonecoverage.textContent, '100% coverage', 'HR coverage shown');
+  assert(dom.ids.climbs.innerHTML.indexOf('+12 m') >= 0 &&
+         dom.ids.climbs.innerHTML.indexOf('1.9% avg') >= 0, 'climb analysis rendered');
   assert.strictEqual(dom.ids.upbtn.textContent, 'Re-upload', 'button label for up=1');
   assert(dom.ids.hspeed.textContent.indexOf('SPEED') === 0, 'speed chart header');
+
+  // Current Pebble mobile builds close the settings screen after
+  // pebblejs://close, so expanding a row must happen entirely inside this
+  // WebView. The packed route is decoded losslessly and does not navigate.
+  var packed = JSON.parse(JSON.stringify(RUN_A));
+  packed.ptn = packed.pts.length;
+  packed.ptb = packPts(packed.pts);
+  delete packed.pts;
+  var packedDom = boot([packed], CFG, false, 0);
+  packedDom.sandbox.showDetail(0);
+  assert.strictEqual(packedDom.hrefs.length, 0, 'expanding a packed run never closes the WebView');
+  assert.strictEqual(JSON.stringify(packedDom.sandbox.RUNS[0].pts),
+                     JSON.stringify(RUN_A.pts), 'packed run restores every route sample');
+  packedDom.sandbox.showList();
+  assert(!packedDom.sandbox.RUNS[0].pts, 'leaving detail releases the expanded route');
+  packedDom.sandbox.showDetail(0);
+  assert.strictEqual(packedDom.sandbox.RUNS[0].pts.length, RUN_A.pts.length,
+                     'packed route can be reopened within the same page');
 
   // the page's smoother copy behaves like the module
   var ks = S.ksmooth([3, 3, 3, 3], 1.5);
@@ -297,7 +391,7 @@ function lastAction(dom) {
   assert(S.ll2w(60, 0, 1).y < 256, 'north is up');
 
   // GPX
-  var g = S.gpx(RUN_A);
+  var g = S.rlGpxBuild(RUN_A);
   assert(g.indexOf('<?xml') === 0, 'xml header');
   assert.strictEqual((g.match(/<trkpt /g) || []).length, RUN_A.pts.length, 'all trkpts');
   assert.strictEqual((g.match(/<trkseg>/g) || []).length, 2, 'pause -> 2 segments');
@@ -326,18 +420,19 @@ function lastAction(dom) {
   // type row: current type highlighted, switching closes with a retype action
   var ty = dom.ids.dtype.innerHTML;
   assert(/class="ton on"[^>]*>Run</.test(ty), 'Run highlighted for a run');
-  assert(ty.indexOf('>Walk<') >= 0 && ty.indexOf('>Ride<') >= 0, 'all three types offered');
+  assert(ty.indexOf('>Walk<') >= 0 && ty.indexOf('>Ride<') >= 0 &&
+         ty.indexOf('>Hike<') >= 0, 'all four types offered');
   var hrefsBefore = dom.hrefs.length;
   S.retype(0);
   assert.strictEqual(dom.hrefs.length, hrefsBefore, 'same type is a no-op');
   S.retype(1);
-  assert.deepStrictEqual(lastAction(dom), { act: 'retype', idx: 1, to: 1 }, 'retype action');
+  assert.deepStrictEqual(lastAction(dom), { act: 'retype', id: RUN_A.start, to: 1 }, 'retype action uses stable id');
 
   // actions
   S.uploadNow();
-  assert.deepStrictEqual(lastAction(dom), { act: 'retry', idx: 1 }, 'retry action');
+  assert.deepStrictEqual(lastAction(dom), { act: 'retry', id: RUN_A.start }, 'retry action uses stable id');
   S.delRun();
-  assert.deepStrictEqual(lastAction(dom), { act: 'del', idx: 1 }, 'delete action');
+  assert.deepStrictEqual(lastAction(dom), { act: 'del', id: RUN_A.start }, 'delete action uses stable id');
   S.clearAll();
   assert.deepStrictEqual(lastAction(dom), { act: 'clear' }, 'clear action');
   dom.ids.cfgname.value = 'evening-{activity}';
@@ -347,11 +442,19 @@ function lastAction(dom) {
   dom.ids.cfgkey.value = '  abc123  ';
   dom.ids.cfguser.value = ' kai+fit@home.lan ';
   dom.ids.cfgpass.value = 'p+%2B çat ';
+  dom.ids.cfgtarget.value = '3';
+  dom.ids.cfgtargetdist.value = '10';
   S.saveCfg();
   assert.deepStrictEqual(lastAction(dom), {
-    act: 'cfg', cfg: { auto: 0, name: 'evening-{activity}', fmt: 'gpx', preset: 'intervals', url: '', auth: '', key: 'abc123',
-                       user: 'kai+fit@home.lan', pass: 'p+%2B çat ' }
-  }, 'plus signs, percents, unicode and spaces survive the close payload verbatim');
+    act: 'cfg', cfg: {
+      auto: 0, name: 'evening-{activity}', target: { type:3, lo:0, hi:0, value:10000 },
+      fmt: 'gpx', preset: 'intervals', url: '',
+      auth: '', authSet: false, clearAuth: false,
+      key: 'abc123', keySet: true, clearKey: false,
+      user: 'kai+fit@home.lan',
+      pass: 'p+%2B çat ', passSet: true, clearPass: false
+    }
+  }, 'secret update intent and special characters survive the close payload');
 
   // the chosen file format is carried in the close payload
   dom.ids.cfgfmt.value = 'fit';
@@ -386,9 +489,9 @@ function lastAction(dom) {
   assert(dom.ids.hsplits.textContent.indexOf('(KM)') >= 0, 'splits header keeps the run\'s km unit');
 
   var empty = boot([], CFG, false, 0);
-  assert(empty.ids.list.innerHTML.indexOf('No runs saved yet') >= 0, 'empty state');
+  assert(empty.ids.list.innerHTML.indexOf('No activities saved yet') >= 0, 'empty state');
   assert(empty.ids.loglines.innerHTML.indexOf('Nothing logged yet') >= 0, 'empty log state');
-  assert(empty.ids.subline.innerHTML.indexOf('0 saved runs') === 0, 'zero count');
+  assert(empty.ids.subline.innerHTML.indexOf('0 saved activities') === 0, 'zero count');
 
   // deep link straight to the run that just finished
   var dl1 = boot([RUN_B, RUN_A], CFG, false, RUN_A.start);
@@ -418,7 +521,7 @@ function lastAction(dom) {
   assert(stats.indexOf('AVG SPEED') >= 0 && stats.indexOf('AVG PACE') < 0, 'speed stat');
   assert(stats.indexOf('20 <small>km/h') >= 0, 'avg speed 180 s/km -> 20 km/h');
   assert(stats.indexOf('BEST 5KM') >= 0, 'best-5km caption');
-  assert(stats.indexOf('MAX SPEED') >= 0, 'ride shows max speed');
+  assert(stats.indexOf('STOPPED') >= 0, 'ride shows a distinct stopped-time metric');
   assert(stats.indexOf('ELAPSED') >= 0, 'ride shows elapsed instead of steps');
   assert(stats.indexOf('CADENCE') < 0 && stats.indexOf('STEPS') < 0, 'ride hides cadence/steps');
   assert.strictEqual(dom.ids.hsplits.textContent, 'SPLITS (5 KM)', 'splits header');
@@ -430,12 +533,31 @@ function lastAction(dom) {
 
   assert(/class="ton on"[^>]*>Ride</.test(dom.ids.dtype.innerHTML), 'Ride highlighted for a ride');
 
-  var g = S.gpx(RUN_C);
+  var g = S.rlGpxBuild(RUN_C);
   assert(g.indexOf('<type>cycling</type>') >= 0, 'gpx type cycling');
-  var g2 = S.gpx({ name: 'x', pts: RUN_C.pts });  // legacy record, no act field
+  var g2 = S.rlGpxBuild({ name: 'x', pts: RUN_C.pts });  // legacy record, no act field
   assert(g2.indexOf('<type>running</type>') >= 0, 'legacy records default to running');
 
   console.log('ride-mode page test OK');
+})();
+
+/* =======================================================================
+ * hike mode: pace/steps/cadence, one-km splits, dedicated GPX type
+ * ===================================================================== */
+(function hikeMode() {
+  var dom = boot([RUN_D], CFG, false, 0);
+  var S = dom.sandbox;
+  S.showDetail(0);
+  var stats = dom.ids.dstats.innerHTML;
+  assert(stats.indexOf('AVG PACE') >= 0 && stats.indexOf('AVG SPEED') < 0,
+         'hike uses pace presentation');
+  assert(stats.indexOf('CADENCE') >= 0 && stats.indexOf('STEPS') >= 0,
+         'hike keeps walking metrics');
+  assert.strictEqual(dom.ids.hsplits.textContent, 'SPLITS (KM)', 'hike uses one-km splits');
+  assert(/class="ton on"[^>]*>Hike</.test(dom.ids.dtype.innerHTML),
+         'Hike highlighted for a hike');
+  assert(S.rlGpxBuild(RUN_D).indexOf('<type>hiking</type>') >= 0, 'hike GPX type');
+  console.log('hike-mode page test OK');
 })();
 
 console.log('\nALL PAGE TESTS PASSED');

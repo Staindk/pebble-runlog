@@ -12,7 +12,8 @@
   h1{font-size:17px;letter-spacing:.18em;margin:0 0 2px;color:#ff5a1f}
   .sub{color:#7d8a96;font-size:13px;margin:0 0 16px}
   .card{background:#1a2128;border-radius:12px;padding:14px;margin-bottom:12px}
-  .rcard{display:flex;align-items:center;cursor:pointer}
+  .rcard{display:flex;align-items:center;cursor:pointer;width:100%;color:inherit;
+         text-align:left;font-weight:400}
   .rcard .km{font-size:30px;font-weight:700;line-height:1;min-width:104px}
   .rcard .km small{font-size:12px;font-weight:400;color:#7d8a96;margin-left:3px}
   .rcard .info{flex:1;min-width:0}
@@ -20,16 +21,19 @@
   .rcard .chips{font-size:13px;color:#7d8a96;margin-top:3px}
   .badge{font-size:11px;border-radius:6px;padding:2px 6px;margin-left:8px;vertical-align:1px}
   .b1{background:#143d23;color:#5ad17f}.b2{background:#46201a;color:#ff8d70}
+  .b3{background:#3f3517;color:#ffd166}
   .empty{color:#7d8a96;padding:30px 0;text-align:center}
   button{appearance:none;border:0;border-radius:9px;padding:11px 14px;
          font-size:14px;font-weight:600;cursor:pointer}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #ff8d70;outline-offset:2px}
   .dl{background:#ff5a1f;color:#fff}
   .ghost{background:#26303a;color:#cfd8e0}
   .danger{background:#26303a;color:#ff8d70}
   .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
   .row button{flex:1;min-width:120px}
   /* detail */
-  .back{color:#7d8a96;font-size:14px;margin:0 0 10px;cursor:pointer;display:inline-block}
+  .back{color:#7d8a96;background:transparent;font-size:14px;font-weight:400;
+        margin:0 0 10px;padding:0;cursor:pointer;display:inline-block}
   #map{position:relative;height:250px;overflow:hidden;border-radius:12px;
        background:#1a2128 repeating-linear-gradient(0deg,transparent,transparent 23px,#222b33 24px),
                   repeating-linear-gradient(90deg,transparent,transparent 23px,#222b33 24px);
@@ -38,7 +42,7 @@
        background:rgba(15,20,25,.7);padding:2px 7px;border-radius:5px;display:none}
   .maptip{font-size:11px;color:#7d8a96;margin-left:6px}
   #mapinner{will-change:transform}
-  #mapinner{position:absolute;left:0;top:0;will-change:transform}
+  #mapinner{position:absolute;left:0;top:0;width:100%;height:100%;will-change:transform}
   #mapinner img{position:absolute;width:256px;height:256px;user-select:none;
                 -webkit-user-drag:none;pointer-events:none}
   #mapsvg{position:absolute;left:0;top:0;pointer-events:none}
@@ -58,9 +62,27 @@
   .split .bar.best{background:#ff5a1f}
   .split .t{width:46px}
   .split .h{color:#7d8a96}
+  .analysis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .insight{background:#1a2128;border-radius:10px;padding:11px;min-height:48px}
+  .insight .icap{font-size:10px;letter-spacing:.1em;color:#7d8a96}
+  .insight .ival{font-size:16px;font-weight:700;margin-top:3px}
+  .insight .isub{font-size:11px;color:#9aa6b1;margin-top:2px;line-height:1.35}
+  .records{grid-column:1/-1;background:#3b2d13;color:#ffd166;min-height:0}
+  .warning{grid-column:1/-1;background:#46201a;color:#ff9a82;min-height:0}
+  .zone{display:grid;grid-template-columns:74px 1fr 55px;gap:8px;align-items:center;
+        font-size:12px;margin:7px 0}
+  .zname{color:#aeb9c4}.ztrack{height:12px;background:#26303a;border-radius:6px;overflow:hidden}
+  .zfill{height:100%;min-width:2px;border-radius:6px}
+  .z1{background:#8fa3b5}.z2{background:#4bbf73}.z3{background:#55a8e8}
+  .z4{background:#ffd166}.z5{background:#ff5a62}
+  .ztime{text-align:right;color:#cfd8e0}
+  .climb{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;
+         background:#1a2128;border-radius:9px;padding:9px 10px;margin:6px 0;font-size:12px}
+  .climb .rank{color:#ff5a1f;font-weight:700}.climb .main{font-weight:600}
+  .climb .detail{color:#7d8a96;text-align:right}
   /* settings */
   label{display:block;font-size:13px;color:#aeb9c4;margin:12px 0 4px}
-  input[type=text],input[type=password],select{width:100%;box-sizing:border-box;background:#0d1116;
+  input[type=text],input[type=password],input[type=number],select{width:100%;box-sizing:border-box;background:#0d1116;
        color:#e8edf2;border:1px solid #26303a;border-radius:8px;padding:10px;font-size:14px}
   .tog{display:flex;align-items:center;gap:10px;font-size:14px;margin-top:4px}
   .tog input{width:20px;height:20px}
@@ -79,6 +101,8 @@
             border-radius:8px;padding:8px 0;font-size:13px}
   #dtype button.on{background:#26303a;color:#fff;border-color:#ff5a1f}
   .foot{margin-top:20px}.foot button{width:100%}
+  .nomap{height:100%;display:flex;align-items:center;justify-content:center;
+         color:#9aa6b1;text-align:center;padding:0 30px;box-sizing:border-box}
 </style>
 </head>
 <body>
@@ -90,10 +114,34 @@
 
   <div class="card" id="setcard">
     <h2 style="margin-top:0">RUN NAME</h2>
-    <label>Default run name template</label>
-    <input type="text" id="cfgname" placeholder="%Y-%m-%d_{activity}"
+    <label>Default activity name template</label>
+    <input type="text" id="cfgname" placeholder="%Y-%m-%d_%H%M_{activity}"
            autocapitalize="none" autocorrect="off" spellcheck="false">
-    <p class="note" id="cfgnamehint">Date/time codes (strftime): %Y year, %y 2-digit year, %m month, %d day, %H hour, %M min, %S sec, %F date (YYYY-MM-DD), %T time (HH:MM:SS), %R HH:MM, %a/%A weekday, %b/%B month name, %p AM/PM, %j day-of-year, %D US date, %% literal %. Extras: {activity}/{Activity}, {part}/{Part} (morning/afternoon/evening/night). ({date} and {time} still work.) Blank = default %Y-%m-%d_{activity}.</p>
+    <p class="note" id="cfgnamehint">Date/time codes (strftime): %Y year, %y 2-digit year, %m month, %d day, %H hour, %M min, %S sec, %F date (YYYY-MM-DD), %T time (HH:MM:SS), %R HH:MM, %a/%A weekday, %b/%B month name, %p AM/PM, %j day-of-year, %D US date, %% literal %. Extras: {activity}/{Activity}, {part}/{Part} (morning/afternoon/evening/night). ({date} and {time} still work.) Blank = default %Y-%m-%d_%H%M_{activity}.</p>
+    <h2>WORKOUT TARGET</h2>
+    <label>Optional target shown on the watch</label>
+    <select id="cfgtarget" onchange="targetUi()">
+      <option value="0">Off</option>
+      <option value="1">Heart-rate zone</option>
+      <option value="2">Duration</option>
+      <option value="3">Distance</option>
+      <option value="4">Pace range</option>
+    </select>
+    <div id="targethr" style="display:none">
+      <label>Target zone</label>
+      <select id="cfgtargetzone"><option value="1">Zone 1</option><option value="2">Zone 2</option><option value="3">Zone 3</option><option value="4">Zone 4</option><option value="5">Zone 5</option></select>
+    </div>
+    <div id="targettime" style="display:none">
+      <label>Duration (minutes)</label><input type="number" id="cfgtargetmins" min="1" max="1440" inputmode="numeric">
+    </div>
+    <div id="targetdist" style="display:none">
+      <label>Distance (<span id="targetunit">km</span>)</label><input type="number" id="cfgtargetdist" min="0.1" step="0.1" inputmode="decimal">
+    </div>
+    <div id="targetpace" style="display:none">
+      <label>Fast edge (min/km)</label><input type="text" id="cfgtargetfast" placeholder="5:00" inputmode="decimal">
+      <label>Slow edge (min/km)</label><input type="text" id="cfgtargetslow" placeholder="5:30" inputmode="decimal">
+      <p class="note">RunLog shows the equivalent speed during rides. Brief GPS fluctuations are ignored before an alert.</p>
+    </div>
     <h2>FILE FORMAT</h2>
     <label>Export / upload format</label>
     <select id="cfgfmt">
@@ -103,27 +151,38 @@
     </select>
     <p class="note">GPX and TCX upload anywhere. FIT is binary &mdash; ideal for Strava/Garmin/intervals, but the destination must accept .fit.</p>
     <h2>UPLOAD</h2>
-    <p class="note" style="margin-top:0">Uploads are manual &mdash; press Upload on the watch debrief, or "Upload now" on a run below. Nothing leaves your phone on its own.</p>
+    <p class="note" style="margin-top:0">Uploads are manual &mdash; press Upload on the watch debrief, or "Upload now" on an activity below. Nothing leaves your phone on its own.</p>
     <label>Destination</label>
     <select id="cfgpreset" onchange="cfgUi()">
       <option value="intervals">intervals.icu (API key)</option>
       <option value="runalyze">Runalyze (personal token)</option>
       <option value="fittrackee">FitTrackee (self-hosted)</option>
+      <option value="endurain">Endurain (self-hosted)</option>
       <option value="webdav">WebDAV / Nextcloud (PUT)</option>
       <option value="custom">Custom webhook (POST)</option>
     </select>
     <div id="cfgurlrow">
       <label>Endpoint URL</label>
-      <input type="text" id="cfgurl" placeholder="https://example.com/runs/upload">
+      <input type="text" id="cfgurl" placeholder="https://example.com/runs/upload"
+             autocapitalize="none" autocorrect="off" spellcheck="false"
+             inputmode="url">
     </div>
     <div id="cfgauthrow">
       <label>Authorization (optional) &mdash; header value or user:pass</label>
-      <input type="text" id="cfgauth" placeholder="Bearer xxxx &middot; Basic xxxx &middot; user:password">
+      <input type="text" id="cfgauth" placeholder="Bearer xxxx &middot; Basic xxxx &middot; user:password"
+             autocapitalize="none" autocorrect="off" spellcheck="false">
+      <label class="tog" id="cfgauthsaved" style="display:none">
+        <input type="checkbox" id="cfgauthclear"> Clear saved authorization
+      </label>
     </div>
     <div id="cfgkeyrow" style="display:none">
       <label id="cfgkeylab">API key</label>
-      <input type="text" id="cfgkey" placeholder="">
+      <input type="text" id="cfgkey" placeholder=""
+             autocapitalize="none" autocorrect="off" spellcheck="false">
       <p class="note" id="cfgkeyhint"></p>
+      <label class="tog" id="cfgkeysaved" style="display:none">
+        <input type="checkbox" id="cfgkeyclear"> Clear saved key
+      </label>
     </div>
     <div id="cfguserrow" style="display:none">
       <label>FitTrackee email</label>
@@ -138,12 +197,15 @@
                autocapitalize="none" autocorrect="off" autocomplete="current-password">
         <button type="button" id="pwtoggle" onclick="togglePw()">Show</button>
       </div>
+      <label class="tog" id="cfgpasssaved" style="display:none">
+        <input type="checkbox" id="cfgpassclear"> Clear saved password
+      </label>
       <p class="note">RunLog logs in to your instance itself and refreshes the token automatically when it expires. Credentials stay in the Pebble app on this phone.</p>
     </div>
     <div class="row">
       <button class="dl" onclick="saveCfg()">Save settings &amp; close</button>
     </div>
-    <p class="note">Settings and per-run actions apply when this page closes. Download buttons work without closing.</p>
+    <p class="note">Settings and per-activity actions apply when this page closes. Download buttons work without closing.</p>
   </div>
 
   <div class="card" id="logcard">
@@ -153,32 +215,43 @@
   </div>
 
   <div class="foot">
-    <button class="ghost" onclick="clearAll()">Delete all runs</button>
+    <button class="ghost" onclick="clearAll()">Delete all activities</button>
     <div style="height:10px"></div>
     <button class="dl" onclick="closePage('')">Done</button>
   </div>
 </div>
 
 <div id="vdetail" style="display:none">
-  <span class="back" onclick="showList()">&#8592; All runs</span>
+  <button type="button" class="back" onclick="showList()">&#8592; All activities</button>
   <div id="dtitle" class="sub" style="margin:0 0 8px"></div>
 
   <div id="map">
     <div id="mapinner"></div>
     <div id="tilenote">map tiles unavailable &mdash; route on grid</div>
-    <div class="mapbtns">
-      <button onclick="zoomBy(1)">+</button>
-      <button onclick="zoomBy(-1)">&#8722;</button>
+    <div class="mapbtns" id="mapbtns">
+      <button type="button" aria-label="Zoom map in" title="Zoom in" onclick="zoomBy(1)">+</button>
+      <button type="button" aria-label="Zoom map out" title="Zoom out" onclick="zoomBy(-1)">&#8722;</button>
       <span class="maptip">pinch or double-tap to zoom</span>
     </div>
-    <div class="attrib">&copy; OpenStreetMap contributors &copy; CARTO &middot; opening a run fetches map tiles for its area over the network</div>
+    <div class="attrib" id="mapattrib">&copy; OpenStreetMap contributors &copy; CARTO &middot; opening an activity fetches map tiles for its area over the network</div>
   </div>
 
   <div class="statgrid" id="dstats"></div>
 
-  <h2 id="hspeed"></h2><canvas id="cspeed"></canvas>
-  <h2 id="hele"></h2><canvas id="cele"></canvas>
-  <h2>HEART RATE <span style="float:right;letter-spacing:0" id="hrsum"></span></h2><canvas id="chr"></canvas>
+  <h2>POST-WORKOUT ANALYSIS</h2>
+  <div class="analysis" id="analysis"></div>
+  <div id="zoneswrap" style="display:none">
+    <h2>TIME IN HEART-RATE ZONES <span style="float:right;letter-spacing:0" id="zonecoverage"></span></h2>
+    <div id="zones"></div>
+  </div>
+  <div id="climbswrap" style="display:none">
+    <h2 id="hclimbs">CLIMBS</h2>
+    <div id="climbs"></div>
+  </div>
+
+  <h2 id="hspeed"></h2><canvas id="cspeed" role="img"></canvas>
+  <h2 id="hele"></h2><canvas id="cele" role="img"></canvas>
+  <h2>HEART RATE <span style="float:right;letter-spacing:0" id="hrsum"></span></h2><canvas id="chr" role="img"></canvas>
 
   <div id="dtype"></div>
   <h2 id="hsplits"></h2>
@@ -187,7 +260,7 @@
   <div class="row">
     <button class="dl" id="dlbtn" onclick="dl()">Download</button>
     <button class="ghost" id="upbtn" onclick="uploadNow()" style="display:none">Upload now</button>
-    <button class="danger" onclick="delRun()">Delete run</button>
+    <button class="danger" onclick="delRun()">Delete activity</button>
   </div>
 </div>
 
@@ -197,9 +270,67 @@ var CFG  = "__RUNLOG_CFG__";
 var MILES = "__RUNLOG_MILES__";
 var INITIAL = "__RUNLOG_INITIAL__";
 var LOGL = "__RUNLOG_LOG__";
+var DETAIL = "__RUNLOG_DETAIL__";
 var CUR = -1;
 var UD = MILES ? 1609.344 : 1000;
 var UN = MILES ? 'mi' : 'km';
+
+/* The current Pebble phone app gives a configuration page one openURL call.
+ * Every route therefore arrives in that first page as a compact URL-safe
+ * base64 varint stream. Decode only the selected route: this keeps list-view
+ * memory bounded while preserving every point for maps, charts and exports. */
+var PT64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function expandPackedPoints(r){
+  if (!r || r.pts) return true;
+  if (!r.ptb || !r.ptn) { r.pts = []; return false; }
+  try {
+    var bytes = [], acc = 0, bits = 0, i, v;
+    for (i = 0; i < r.ptb.length; i++) {
+      v = PT64.indexOf(r.ptb.charAt(i));
+      if (v < 0) continue;                     // '=' padding
+      acc = acc * 64 + v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push(Math.floor(acc / Math.pow(2, bits)) & 255);
+        acc = acc % Math.pow(2, bits);
+      }
+    }
+    var bi = 0;
+    function vu(){
+      var n = 0, mul = 1, b, guard = 0;
+      do {
+        if (bi >= bytes.length || guard++ > 8) throw new Error('bad point stream');
+        b = bytes[bi++];
+        n += (b & 127) * mul;
+        mul *= 128;
+      } while (b & 128);
+      return n;
+    }
+    function vi(){ var n = vu(); return n % 2 ? -(n + 1) / 2 : n / 2; }
+    function elev(n){ return n === 0 ? '' : viCode(n - 1) / 10; }
+    function viCode(n){ return n % 2 ? -(n + 1) / 2 : n / 2; }
+    var out = [], t = 0, la = 0, lo = 0, el = 0, hr = 0, cad = 0;
+    for (i = 0; i < r.ptn; i++) {
+      if (i === 0) {
+        t = vu(); la = vi(); lo = vi(); el = vu(); hr = vu();
+        var seg0 = vu(); cad = vu();
+        out.push([t, la / 1e6, lo / 1e6, elev(el), hr, seg0, cad]);
+      } else {
+        t += vi(); la += vi(); lo += vi(); el += vi(); hr += vi();
+        var seg = vu(); cad += vi();
+        out.push([t, la / 1e6, lo / 1e6, elev(el), hr, seg, cad]);
+      }
+    }
+    if (bi !== bytes.length) throw new Error('trailing point data');
+    r.pts = out;
+    return true;
+  } catch (e) {
+    r.pts = [];
+    r.routeDecodeError = true;
+    return false;
+  }
+}
 
 /* Splits are bucketed at record time in the unit the run used then (r.mi), and
  * stored in metres. They must be shown in THAT unit regardless of the phone's
@@ -207,7 +338,6 @@ var UN = MILES ? 'mi' : 'km';
 function runUD(r){ return r.mi ? 1609.344 : 1000; }
 function runUN(r){ return r.mi ? 'mi' : 'km'; }
 function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escXml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmtPaceR(r, skm){ if (!skm) return '--:--'; var s = Math.round(r.mi ? skm * 1.609344 : skm); return Math.floor(s / 60) + ':' + z2(s % 60); }
 
 function $(id){ return document.getElementById(id); }
@@ -221,7 +351,8 @@ function fmtPace(skm){ if (!skm) return '--:--';
 function fmtSpeed(v){ if (!v) return '--';
   return v >= 10 ? String(Math.round(v)) : v.toFixed(1); }
 function fmtEg(m){ return MILES ? Math.round(m*3.28084)+' ft' : Math.round(m)+' m'; }
-function actOf(r){ return (r.act >= 0 && r.act <= 2) ? r.act : 0; }
+function actOf(r){ return (r.act >= 0 && r.act <= 3) ? r.act : 0; }
+function rid(r){ return (r.sid !== undefined && r.sid !== null && r.sid !== 0) ? r.sid : r.start; }
 function splitUnit(r){ return runUD(r) * (actOf(r) === 2 ? 5 : 1); }
 function paceOrSpeed(r, skm){          // rides read in km/h (mph), the rest in pace
   if (!skm) return '--';
@@ -232,63 +363,39 @@ function paceOrSpeed(r, skm){          // rides read in km/h (mph), the rest in 
 /* ---------- exporters: TCX + FIT injected here by tools/build_page.js ---------- */
 /*__RUNLOG_EXPORTERS__*/
 
-/* ---------- GPX ---------- */
-function iso(t){ return new Date(t*1000).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
-function gpx(r){
-  if (!r.pts || !r.pts.length) return "";   // defensive: no track to export
-  var o = ['<?xml version="1.0" encoding="UTF-8"?>\n',
-    '<gpx version="1.1" creator="RunLog for Pebble" ',
-    'xmlns="http://www.topografix.com/GPX/1/1" ',
-    'xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">\n',
-    '<metadata><time>' + iso(r.pts[0][0]) + '</time></metadata>\n',
-    '<trk><name>' + escXml(r.name) + '</name><type>' +
-      ['running','walking','cycling'][actOf(r)] + '</type>\n<trkseg>\n'];
-  for (var i = 0; i < r.pts.length; i++) {
-    var p = r.pts[i];
-    if (p[5] && i > 0) o.push('</trkseg>\n<trkseg>\n');
-    o.push('<trkpt lat="' + p[1] + '" lon="' + p[2] + '">');
-    if (p[3] !== '' && p[3] !== null) o.push('<ele>' + p[3] + '</ele>');
-    o.push('<time>' + iso(p[0]) + '</time>');
-    var hr = p[4] > 0, cad = p.length > 6 && p[6] > 0;
-    if (hr || cad) {
-      o.push('<extensions><gpxtpx:TrackPointExtension>');
-      if (hr)  o.push('<gpxtpx:hr>' + p[4] + '</gpxtpx:hr>');
-      if (cad) o.push('<gpxtpx:cad>' + Math.round(p[6]/2) + '</gpxtpx:cad>');
-      o.push('</gpxtpx:TrackPointExtension></extensions>');
-    }
-    o.push('</trkpt>\n');
-  }
-  o.push('</trkseg>\n</trk>\n</gpx>\n');
-  return o.join('');
-}
 
 /* ---------- list view ---------- */
 function badge(up){
   if (up === 1) return '<span class="badge b1">uploaded</span>';
   if (up === 2) return '<span class="badge b2">upload failed</span>';
+  if (up === 3) return '<span class="badge b3">changed locally</span>';
   return '';
 }
 function showList(){
+  // Keep only one decoded route resident. The compact stream remains available
+  // for an exact re-open, so visiting several long hikes cannot exhaust WebView
+  // memory.
+  if (CUR >= 0 && RUNS[CUR] && RUNS[CUR].ptb) delete RUNS[CUR].pts;
   $('vdetail').style.display = 'none';
   $('vlist').style.display = '';
   CUR = -1;
 }
 function renderList(){
-  $('subline').innerHTML = RUNS.length + ' saved run' + (RUNS.length === 1 ? '' : 's') +
-    ' &middot; tap a run for the full debrief';
+  $('subline').innerHTML = RUNS.length + ' saved activit' + (RUNS.length === 1 ? 'y' : 'ies') +
+    ' &middot; tap one for the full debrief';
   if (!RUNS.length) {
-    $('list').innerHTML = '<p class="empty">No runs saved yet.<br>Finish a run on the watch, then come back here.</p>';
+    $('list').innerHTML = '<p class="empty">No activities saved yet.<br>Finish one on the watch, then come back here.</p>';
     return;
   }
   var h = '';
   for (var i = RUNS.length - 1; i >= 0; i--) {
     var r = RUNS[i];
-    h += '<div class="card rcard" onclick="showDetail(' + i + ')">' +
-      '<div class="km">' + fmtDist(r.dist) + '<small>' + UN + '</small></div>' +
+    h += '<button type="button" class="card rcard" onclick="showDetail(' + i + ')" aria-label="Open ' + escHtml(r.name) + '">' +
+      '<div class="km">' + (r.route === 0 ? '--' : fmtDist(r.dist)) + '<small>' + (r.route === 0 ? ' no GPS' : UN) + '</small></div>' +
       '<div class="info"><div class="name">' + escHtml(r.name) + badge(r.up) + '</div>' +
       '<div class="chips">' + fmtDur(r.mov || r.dur) + ' &middot; ' + paceOrSpeed(r, r.avgp) +
       (r.avgHr ? ' &middot; &#9829; ' + r.avgHr : '') + '</div></div>' +
-      '<div style="color:#7d8a96">&#8250;</div></div>';
+      '<div style="color:#7d8a96">&#8250;</div></button>';
   }
   $('list').innerHTML = h;
 }
@@ -298,44 +405,144 @@ function stat(cap, v, sub){
   return '<div class="stat"><div class="cap">' + cap + '</div><div class="v">' + v +
          (sub ? ' <small>' + sub + '</small>' : '') + '</div></div>';
 }
+function insight(cap, val, sub, cls){
+  return '<div class="insight' + (cls ? ' ' + cls : '') + '">' +
+         '<div class="icap">' + cap + '</div><div class="ival">' + val + '</div>' +
+         (sub ? '<div class="isub">' + sub + '</div>' : '') + '</div>';
+}
+function signed(n){ return (n > 0 ? '+' : '') + n; }
+function renderAnalysis(r){
+  var a = r.analysis || null, h = [];
+  if (r.journalWarning) {
+    h.push(insight('STORAGE RECOVERY', 'Route salvaged',
+      r.journalWarning.recovered + ' of ' + r.journalWarning.expected +
+      ' points recovered; gaps are kept as separate segments.', 'warning'));
+  }
+  if (r.dq) h.push(insight('DATA QUALITY', 'Watch samples incomplete',
+    'Totals were retained, but part of the disconnected sensor timeline exceeded the watch journal or was interrupted by a restart.', 'warning'));
+  if (!a) {
+    h.push(insight('ANALYSIS', 'Not available',
+      'This older activity has no post-workout analysis.'));
+  } else {
+    h.push(insight('STOPPED TIME', fmtDur(a.stopped || 0),
+      (a.pauses || 0) + ' recorded pause' + (a.pauses === 1 ? '' : 's')));
+    var p = a.pacing || {};
+    if (p.cv !== undefined) {
+      var steady = p.cv <= 3 ? 'Very steady' : p.cv <= 6 ? 'Steady' :
+                   p.cv <= 10 ? 'Variable' : 'Very variable';
+      h.push(insight('SPLIT CONSISTENCY', steady,
+        p.cv.toFixed(1) + '% variation across ' + p.fullSplits + ' full splits'));
+    }
+    if (p.trendPct !== undefined && p.firstHalf && p.secondHalf) {
+      var ap = Math.abs(p.trendPct);
+      var finish = ap < 1 ? 'Even halves' :
+                   ap.toFixed(1) + '% ' + (p.trendPct < 0 ? 'faster finish' : 'slower finish');
+      h.push(insight('FINISH STRENGTH', finish,
+        paceOrSpeed(r, p.firstHalf) + ' \u2192 ' + paceOrSpeed(r, p.secondHalf)));
+    }
+    var cx = a.context || null;
+    if (cx && cx.savedPeers === 0) {
+      h.push(insight('HISTORY', 'Baseline set',
+        'Only saved ' + ['run','walk','ride','hike'][actOf(r)] + ' on this phone; future workouts will compare here.'));
+    } else if (cx && cx.previous) {
+      var bits = [];
+      if (cx.previous.pacePct !== undefined && Math.abs(cx.previous.pacePct) >= 0.5)
+        bits.push(Math.abs(cx.previous.pacePct).toFixed(1) + '% ' +
+                  (cx.previous.pacePct > 0 ? 'faster' : 'slower'));
+      if (cx.previous.hrDelta)
+        bits.push(Math.abs(cx.previous.hrDelta) + ' bpm ' +
+                  (cx.previous.hrDelta > 0 ? 'higher' : 'lower'));
+      if (bits.length) h.push(insight('VS PREVIOUS', bits[0],
+        bits.slice(1).join(' \u00b7 ') || 'Same activity type'));
+    }
+    if (cx && cx.records && cx.records.length) {
+      var rn = {
+        longest_distance:'Longest distance', longest_time:'Longest time',
+        most_ascent:'Most ascent', fastest_split:'Fastest full split'
+      }, labels = [];
+      for (var ri = 0; ri < cx.records.length; ri++) labels.push(rn[cx.records[ri]]);
+      h.push(insight('BEST OF SAVED ' + ['RUNS','WALKS','RIDES','HIKES'][actOf(r)],
+                     labels.join(' \u00b7 '), 'Compared with activities currently kept on this phone.', 'records'));
+    }
+  }
+  $('analysis').innerHTML = h.join('');
+
+  var z = a && a.zones;
+  $('zoneswrap').style.display = z && z.total ? '' : 'none';
+  if (z && z.total) {
+    var zn = ['Z1 <60%', 'Z2 60\u201370%', 'Z3 70\u201380%', 'Z4 80\u201390%', 'Z5 90%+'];
+    var zh = '';
+    for (var zi = 0; zi < 5; zi++) {
+      var pct = Math.round((z.secs[zi] || 0) * 100 / z.total);
+      zh += '<div class="zone"><div class="zname">' + zn[zi] + '</div>' +
+            '<div class="ztrack"><div class="zfill z' + (zi + 1) +
+            '" style="width:' + pct + '%"></div></div>' +
+            '<div class="ztime">' + fmtDur(z.secs[zi] || 0) + '</div></div>';
+    }
+    $('zones').innerHTML = zh;
+    $('zonecoverage').textContent = z.coverage + '% coverage';
+  }
+
+  var cl = a && a.climbs;
+  $('climbswrap').style.display = cl && cl.count ? '' : 'none';
+  if (cl && cl.count) {
+    $('hclimbs').textContent = cl.count + ' SUSTAINED CLIMB' + (cl.count === 1 ? '' : 'S');
+    var ch = '';
+    for (var ci = 0; ci < cl.top.length; ci++) {
+      var c = cl.top[ci];
+      ch += '<div class="climb"><div class="rank">#' + (ci + 1) + '</div>' +
+            '<div><div class="main">+' + fmtEg(c.gain) + ' over ' +
+            fmtDist(c.dist) + ' ' + UN + '</div><div class="isub">' +
+            fmtDur(c.dur) + '</div></div><div class="detail">' +
+            c.grade.toFixed(1) + '% avg</div></div>';
+    }
+    $('climbs').innerHTML = ch;
+  }
+}
 function showDetail(i){
   CUR = i;
   var r = RUNS[i];
+  expandPackedPoints(r);
   $('vlist').style.display = 'none';
   $('vdetail').style.display = '';
   $('dtitle').innerHTML = escHtml(r.name) + badge(r.up);
 
   var best = bestSplit(r);
   var ride = actOf(r) === 2;
+  var routed = r.route !== 0;
   var su = splitUnit(r) / runUD(r);            // 1 or 5
   $('dstats').innerHTML =
-    stat('DISTANCE', fmtDist(r.dist), UN) +
+    stat('DISTANCE', routed ? fmtDist(r.dist) : '--', routed ? UN : 'no GPS route') +
     stat('MOVING TIME', fmtDur(r.mov || r.dur), r.mov && r.dur > r.mov + 5 ? fmtDur(r.dur) + ' total' : '') +
-    (ride ? stat('AVG SPEED', r.avgp ? fmtSpeed((3600/r.avgp) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
-          : stat('AVG PACE', fmtPace(r.avgp), '/' + UN)) +
+    (routed ? (ride ? stat('AVG SPEED', r.avgp ? fmtSpeed((3600/r.avgp) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
+          : stat('AVG PACE', fmtPace(r.avgp), '/' + UN)) : '') +
     stat('AVG HR', r.avgHr || '--', r.maxHr ? r.maxHr + ' max' : '') +
     (r.vo2max ? stat('VO&#8322;MAX', r.vo2max, 'ml/kg/min') : '') +
-    stat('ELEV GAIN', fmtEg(r.egain || 0), '') +
-    (ride ? stat('MAX SPEED', best ? fmtSpeed((3600/best) * (MILES ? 0.6213712 : 1)) : '--', MILES ? 'mph' : 'km/h')
+    (routed ? stat('ELEV GAIN', fmtEg(r.egain || 0), '') : '') +
+    (ride ? stat('STOPPED', fmtDur(Math.max(0, r.dur - (r.active || r.mov || r.dur))), '')
           : stat('CADENCE', r.cad || '--', 'spm')) +
     (ride ? stat('ELAPSED', fmtDur(r.dur), r.dur > (r.mov||r.dur) + 5 ? 'incl. stops' : '')
           : stat('STEPS', r.steps || '--', '')) +
-    (ride ? stat('BEST ' + su + runUN(r).toUpperCase(), best ? fmtSpeed((3600/best) * (r.mi ? 0.6213712 : 1)) : '--', r.mi ? 'mph' : 'km/h')
-          : stat('BEST ' + runUN(r).toUpperCase(), best ? fmtPaceR(r, best) : '--', '/' + runUN(r)));
+    (routed ? (ride ? stat('BEST ' + su + runUN(r).toUpperCase(), best ? fmtSpeed((3600/best) * (r.mi ? 0.6213712 : 1)) : '--', r.mi ? 'mph' : 'km/h')
+          : stat('BEST ' + runUN(r).toUpperCase(), best ? fmtPaceR(r, best) : '--', '/' + runUN(r))) : '');
 
   $('hspeed').textContent = 'SPEED ' + (MILES ? 'MPH' : 'KM/H');
   $('hele').textContent = 'ELEVATION';
   $('hsplits').textContent = 'SPLITS (' + (actOf(r) === 2 ? '5 ' : '') + runUN(r).toUpperCase() + ')';
-  var tns = ['Run', 'Walk', 'Ride'], th = '';
-  for (var ti = 0; ti < 3; ti++) {
+  $('hspeed').style.display = $('cspeed').style.display = routed ? '' : 'none';
+  $('hele').style.display = $('cele').style.display = routed ? '' : 'none';
+  $('hsplits').style.display = routed || (r.laps && r.laps.length) ? '' : 'none';
+  var tns = ['Run', 'Walk', 'Ride', 'Hike'], th = '';
+  for (var ti = 0; ti < 4; ti++) {
     th += '<button class="' + (actOf(r) === ti ? 'ton on' : 'ton') +
           '" onclick="retype(' + ti + ')">' + tns[ti] + '</button>';
   }
   $('dtype').innerHTML = th;
   $('hrsum').textContent = r.avgHr ? r.avgHr + ' avg / ' + r.maxHr + ' max' : '';
-  $('upbtn').style.display = ((CFG.url || CFG.key) ? '' : 'none');
-  $('upbtn').textContent = (r.up === 1) ? 'Re-upload' : 'Upload now';
+  $('upbtn').style.display = (CFG.hasTarget || CFG.url || CFG.hasKey) ? '' : 'none';
+  $('upbtn').textContent = (r.up === 1 || r.up === 3) ? 'Re-upload' : 'Upload now';
 
+  renderAnalysis(r);
   series(r);
   renderSplits(r);
   initMap(r);
@@ -353,30 +560,6 @@ function bestSplit(r){
 /* Centered Gaussian moving average — same algorithm as src/pkjs/smooth.js
  * (the page is standalone, so it carries a copy). null = missing sample,
  * brk[i] = a pause starts at point i, never smoothed across. */
-function ksmooth(vals, sigma, brk){
-  var n = vals.length;
-  if (n < 3 || !(sigma > 0)) return vals.slice();
-  var halfW = Math.max(1, Math.round(sigma * 3));
-  var w = [1], j;
-  for (j = 1; j <= halfW; j++) w.push(Math.exp(-(j*j) / (2*sigma*sigma)));
-  var out = new Array(n);
-  for (var i = 0; i < n; i++) {
-    if (vals[i] === null || vals[i] === undefined) { out[i] = null; continue; }
-    var acc = vals[i], wt = 1;
-    for (j = 1; j <= halfW; j++) {
-      var L = i - j;
-      if (L < 0 || (brk && brk[L + 1])) break;
-      if (vals[L] !== null && vals[L] !== undefined) { acc += vals[L]*w[j]; wt += w[j]; }
-    }
-    for (j = 1; j <= halfW; j++) {
-      var R = i + j;
-      if (R >= n || (brk && brk[R])) break;
-      if (vals[R] !== null && vals[R] !== undefined) { acc += vals[R]*w[j]; wt += w[j]; }
-    }
-    out[i] = acc / wt;
-  }
-  return out;
-}
 function rad(x){ return x * Math.PI / 180; }
 function hav(a, b){
   var R = 6371000, dla = rad(b[1]-a[1]), dlo = rad(b[2]-a[2]);
@@ -386,16 +569,17 @@ function hav(a, b){
 }
 function series(r){
   if (!r.pts || !r.pts.length) return;   // defensive: no points to chart
+  var routed = r.route !== 0;
   var xs = [0], rawSpd = [null], hr = [r.pts[0][4] || null], ele = [r.pts[0][3] === '' ? null : r.pts[0][3]];
   var brk = [false], cum = 0;
   for (var i = 1; i < r.pts.length; i++) {
     var a = r.pts[i-1], b = r.pts[i];
-    var d = b[5] ? 0 : hav(a, b);
+    var d = (!routed || b[5]) ? 0 : hav(a, b);
     var dt = b[0] - a[0];
     cum += d;
-    xs.push(cum / UD);
+    xs.push(routed ? cum / UD : Math.max(0, (b[0] - r.pts[0][0]) / 60));
     brk.push(!!b[5]);
-    rawSpd.push((b[5] || dt <= 0) ? null : d / dt);   // m/s, null across pauses
+    rawSpd.push((!routed || b[5] || dt <= 0) ? null : d / dt);   // m/s, null across pauses
     hr.push(b[4] > 0 ? b[4] : null);
     ele.push(b[3] === '' ? null : b[3]);
   }
@@ -407,12 +591,12 @@ function series(r){
   });
   var hrS  = ksmooth(hr,  sg,       brk);
   var eleS = ksmooth(ele, sg * 1.5, brk);
-  chart('cspeed', xs, speed, { color:'#ff5a1f',
+  if (routed) chart('cspeed', xs, speed, { color:'#ff5a1f',
         fmt:function(v){ return fmtSpeed(v); } });
-  chart('cele', xs, eleS, { color:'#8fa3b5', area:true,
+  if (routed) chart('cele', xs, eleS, { color:'#8fa3b5', area:true,
         fmt:function(v){ return Math.round(MILES ? v*3.28084 : v); } });
   chart('chr', xs, hrS, { color:'#ff4d6a',
-        fmt:function(v){ return Math.round(v); } });
+        unit:routed ? UN : 'min', fmt:function(v){ return Math.round(v); } });
 }
 function chart(id, xs, ys, o){
   var c = $(id), dpr = window.devicePixelRatio || 1;
@@ -422,9 +606,12 @@ function chart(id, xs, ys, o){
   var mn = Infinity, mx = -Infinity, n = xs.length, i;
   for (i = 0; i < n; i++) if (ys[i] !== null) { if (ys[i] < mn) mn = ys[i]; if (ys[i] > mx) mx = ys[i]; }
   if (mn === Infinity) { g.fillStyle = '#7d8a96'; g.font = '12px sans-serif';
+    c.setAttribute('aria-label', id + ': no data');
     g.fillText('no data', 10, 60); return; }
   if (mx - mn < 1e-6) { mx += 1; mn -= 1; }
   var pad = (mx - mn) * 0.12; mn -= pad; mx += pad;
+  c.setAttribute('aria-label', id + ': ' + o.fmt(mn) + ' to ' + o.fmt(mx) +
+                 ' over ' + (xs[n-1] || 0).toFixed(1) + ' ' + (o.unit || UN));
   var L = 38, R = 6, T = 8, B = 16;
   var xmax = xs[n-1] || 1;
   function X(x){ return L + (W-L-R) * x / xmax; }
@@ -458,18 +645,20 @@ function chart(id, xs, ys, o){
 
 /* ---------- splits ---------- */
 function renderSplits(r){
-  if (!r.splits || !r.splits.length) { $('splits').innerHTML = '<p class="note">No splits.</p>'; return; }
+  var manual = r.laps || [];
+  var autos = r.splits || [];
+  if (!autos.length && !manual.length) { $('splits').innerHTML = '<p class="note">No splits.</p>'; return; }
   var SU = splitUnit(r), mult = SU / runUD(r), ride = actOf(r) === 2;
   var worst = 0, best = 1e9, i, paces = [];
-  for (i = 0; i < r.splits.length; i++) {
-    var s = r.splits[i], p = s.s / (s.d / 1000);
+  for (i = 0; i < autos.length; i++) {
+    var s = autos[i], p = s.s / (s.d / 1000);
     paces.push(p);
     if (p > worst) worst = p;
     if (s.d > SU*0.99 && p < best) best = p;
   }
   var h = '';
-  for (i = 0; i < r.splits.length; i++) {
-    var s2 = r.splits[i], p2 = paces[i];
+  for (i = 0; i < autos.length; i++) {
+    var s2 = autos[i], p2 = paces[i];
     var full = s2.d > SU*0.99;
     var wpx = Math.max(8, Math.round(140 * (worst ? (worst/p2) : 1)));
     var label = full ? ((i+1) * mult) : (s2.d/runUD(r)).toFixed(1);
@@ -478,6 +667,20 @@ function renderSplits(r){
       '<div class="bar' + (full && Math.abs(p2-best) < 0.5 ? ' best' : '') + '" style="width:' + wpx + 'px"></div>' +
       '<div class="t">' + val + '</div>' +
       '<div class="h">' + (s2.hr ? '&#9829; ' + s2.hr : '') + '</div></div>';
+  }
+  if (manual.length) {
+    h += '<h2>MANUAL LAPS</h2>';
+    var bounds = manual.slice();
+    bounds.push({ active:r.active || r.mov || 0, dist:r.dist || 0, final:1 });
+    var pa = 0, pd = 0;
+    for (i = 0; i < bounds.length; i++) {
+      var lt = Math.max(0, Math.round((bounds[i].active || 0) - pa));
+      var ld = Math.max(0, Math.round((bounds[i].dist || 0) - pd));
+      h += '<div class="split"><div class="n">' + (i + 1) + '</div>' +
+           '<div class="bar" style="width:70px"></div><div class="t">' + fmtDur(lt) + '</div>' +
+           '<div class="h">' + (r.route === 0 ? 'no GPS' : fmtDist(ld) + ' ' + runUN(r)) + '</div></div>';
+      pa = bounds[i].active || pa; pd = bounds[i].dist || pd;
+    }
   }
   $('splits').innerHTML = h;
 }
@@ -491,7 +694,14 @@ function ll2w(lat, lon, z){            // world pixel coords at zoom z
            y: (1 - Math.log(Math.tan(la) + 1/Math.cos(la)) / Math.PI) / 2 * n };
 }
 function initMap(r){
-  if (!r.pts || !r.pts.length) { var mp=$("dmap"); if(mp) mp.innerHTML="<div class='nomap'>No route recorded</div>"; return; }
+  if (r.route === 0 || !r.pts || !r.pts.length) {
+    $('mapinner').innerHTML = "<div class='nomap'>No GPS route was recorded.<br>Time, heart rate and steps are still preserved.</div>";
+    $('mapbtns').style.display = 'none';
+    $('mapattrib').style.display = 'none';
+    return;
+  }
+  $('mapbtns').style.display = '';
+  $('mapattrib').style.display = '';
   var mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180, i;
   for (i = 0; i < r.pts.length; i++) {
     var p = r.pts[i];
@@ -666,13 +876,24 @@ function renderMap(){
   var svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('id', 'mapsvg');
   svg.setAttribute('width', W); svg.setAttribute('height', H);
-  var d = '', started = false;
+  var cmds = [], started = false, lastPx = null, lastPy = null;
+  // The complete route remains in r.pts for charts and downloads. An SVG path
+  // cannot reveal more detail than the phone's pixels, so cap only its visual
+  // vertices; always retain starts, ends and both sides of pause boundaries.
+  var visualStep = Math.max(1, Math.ceil(r.pts.length / 1800));
   for (var i = 0; i < r.pts.length; i++) {
     var w = ll2w(r.pts[i][1], r.pts[i][2], MZ);
     var px = (w.x - ox).toFixed(1), py = (w.y - oy).toFixed(1);
-    d += (started && !r.pts[i][5] ? 'L' : 'M') + px + ' ' + py;
+    var required = i === 0 || i === r.pts.length - 1 || r.pts[i][5] ||
+                   (i + 1 < r.pts.length && r.pts[i + 1][5]);
+    var moved = lastPx === null || Math.abs(Number(px) - lastPx) >= 0.7 ||
+                Math.abs(Number(py) - lastPy) >= 0.7;
+    if (!required && (i % visualStep !== 0 || !moved)) continue;
+    cmds.push((started && !r.pts[i][5] ? 'L' : 'M') + px + ' ' + py);
+    lastPx = Number(px); lastPy = Number(py);
     started = true;
   }
+  var d = cmds.join('');
   var casing = document.createElementNS(NS, 'path');
   casing.setAttribute('d', d); casing.setAttribute('fill', 'none');
   casing.setAttribute('stroke', '#0f1419'); casing.setAttribute('stroke-width', '7');
@@ -703,7 +924,7 @@ function dl(){
   var blob, ext;
   if (fmt === 'tcx')      { blob = new Blob([rlTcxBuild(r)], { type: 'application/vnd.garmin.tcx+xml' }); ext = '.tcx'; }
   else if (fmt === 'fit') { blob = new Blob([rlFitBuild(r)], { type: 'application/octet-stream' }); ext = '.fit'; }
-  else                    { blob = new Blob([gpx(r)], { type: 'application/gpx+xml' }); ext = '.gpx'; }
+  else                    { blob = new Blob([rlGpxBuild(r)], { type: 'application/gpx+xml' }); ext = '.gpx'; }
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = base + ext;
@@ -740,16 +961,16 @@ function closePage(act){
   var payload = act ? 'b64.' + b64u(act) : '';
   location.href = 'pebblejs://close#' + encodeURIComponent(payload);
 }
-function uploadNow(){ closePage(JSON.stringify({ act:'retry', idx: CUR })); }
+function uploadNow(){ closePage(JSON.stringify({ act:'retry', id:rid(RUNS[CUR]) })); }
 function retype(to){
   if (actOf(RUNS[CUR]) === to) return;          // already that type
-  closePage(JSON.stringify({ act:'retype', idx: CUR, to: to }));
+  closePage(JSON.stringify({ act:'retype', id:rid(RUNS[CUR]), to: to }));
 }
 function delRun(){
-  if (confirm('Delete this run?')) closePage(JSON.stringify({ act:'del', idx: CUR }));
+  if (confirm('Delete this activity?')) closePage(JSON.stringify({ act:'del', id:rid(RUNS[CUR]) }));
 }
 function clearAll(){
-  if (confirm('Delete all saved runs?')) closePage(JSON.stringify({ act:'clear' }));
+  if (confirm('Delete all saved activities?')) closePage(JSON.stringify({ act:'clear' }));
 }
 function renderLog(){
   if (!LOGL || !LOGL.length) {
@@ -773,14 +994,16 @@ function cfgUi(){
   var p = $('cfgpreset').value;
   var hosted = (p === 'intervals' || p === 'runalyze');
   var ft = (p === 'fittrackee');
+  var endurain = (p === 'endurain');
   $('cfgurlrow').style.display = hosted ? 'none' : '';
-  $('cfgauthrow').style.display = (hosted || ft) ? 'none' : '';
-  $('cfgkeyrow').style.display = hosted ? '' : 'none';
+  $('cfgauthrow').style.display = (hosted || ft || endurain) ? 'none' : '';
+  $('cfgkeyrow').style.display = (hosted || endurain) ? '' : 'none';
   $('cfguserrow').style.display = ft ? '' : 'none';
   $('cfgpassrow').style.display = ft ? '' : 'none';
   $('cfgurl').placeholder =
     (p === 'webdav') ? 'https://cloud.example.com/remote.php/dav/files/you/Runs/' :
     ft               ? 'https://fittrackee.your-server.lan' :
+    endurain          ? 'https://endurain.your-server.lan' :
                        'https://example.com/runs/upload';
   if (p === 'intervals') {
     $('cfgkeylab').textContent = 'intervals.icu API key';
@@ -788,39 +1011,91 @@ function cfgUi(){
   } else if (p === 'runalyze') {
     $('cfgkeylab').textContent = 'Runalyze personal token';
     $('cfgkeyhint').textContent = 'runalyze.com \u2192 Account \u2192 Personal API \u2192 create token (activity_push).';
+  } else if (p === 'endurain') {
+    $('cfgkeylab').textContent = 'Endurain API key';
+    $('cfgkeyhint').textContent = 'Endurain \u2192 Settings \u2192 Security \u2192 API Keys. Create a key with only the activities:upload scope.';
   }
 }
+function targetUi(){
+  var t = Number($('cfgtarget').value) || 0;
+  $('targethr').style.display = t === 1 ? '' : 'none';
+  $('targettime').style.display = t === 2 ? '' : 'none';
+  $('targetdist').style.display = t === 3 ? '' : 'none';
+  $('targetpace').style.display = t === 4 ? '' : 'none';
+}
+function parseTargetPace(v){
+  var s = String(v || '').replace(/^\s+|\s+$/g, ''), m = /^(\d+)(?::([0-5]?\d))?$/.exec(s);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2] || 0);
+}
+function targetPaceText(s){
+  s = Math.max(0, Math.round(s || 0));
+  return s ? Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2) : '';
+}
+function readTarget(){
+  var type = Number($('cfgtarget').value) || 0, lo = 0, hi = 0, value = 0;
+  if (type === 1) value = Number($('cfgtargetzone').value) || 2;
+  else if (type === 2) value = Math.max(0, Math.round(Number($('cfgtargetmins').value || 0) * 60));
+  else if (type === 3) value = Math.max(0, Math.round(Number($('cfgtargetdist').value || 0) * UD));
+  else if (type === 4) { lo = parseTargetPace($('cfgtargetfast').value); hi = parseTargetPace($('cfgtargetslow').value); }
+  return { type:type, lo:lo, hi:hi, value:value };
+}
 function saveCfg(){
+  var av = $('cfgauth').value.replace(/^\s+|\s+$/g, '');
+  var kv = $('cfgkey').value.replace(/^\s+|\s+$/g, '');
+  var pv = $('cfgpass').value;
   closePage(JSON.stringify({ act:'cfg', cfg:{
     auto: 0,
     name: $('cfgname').value.replace(/^\s+|\s+$/g, ''),
+    target: readTarget(),
     fmt: $('cfgfmt').value,
     preset: $('cfgpreset').value,
     url: $('cfgurl').value.replace(/^\s+|\s+$/g, ''),
-    auth: $('cfgauth').value.replace(/^\s+|\s+$/g, ''),
-    key: $('cfgkey').value.replace(/^\s+|\s+$/g, ''),
+    auth: av,
+    authSet: av !== '',
+    clearAuth: $('cfgauthclear').checked,
+    key: kv,
+    keySet: kv !== '',
+    clearKey: $('cfgkeyclear').checked,
     user: $('cfguser').value.replace(/^\s+|\s+$/g, ''),
-    pass: $('cfgpass').value
+    pass: pv,
+    passSet: pv !== '',
+    clearPass: $('cfgpassclear').checked
   }}));
 }
 
 /* ---------- boot ---------- */
 $('cfgname').value = CFG.name || '';
+var CT = CFG.target || {type:0,lo:0,hi:0,value:0};
+$('cfgtarget').value = String(CT.type || 0);
+$('cfgtargetzone').value = String(CT.value || 2);
+$('cfgtargetmins').value = CT.type === 2 && CT.value ? Math.round(CT.value / 60) : '';
+$('targetunit').textContent = UN;
+$('cfgtargetdist').value = CT.type === 3 && CT.value ? Math.round(CT.value / UD * 10) / 10 : '';
+$('cfgtargetfast').value = targetPaceText(CT.lo);
+$('cfgtargetslow').value = targetPaceText(CT.hi);
+targetUi();
 $('cfgfmt').value = CFG.fmt || 'gpx';
 if ($('dlbtn')) $('dlbtn').textContent = 'Download .' + (CFG.fmt || 'gpx');
 $('cfgpreset').value = CFG.preset || 'custom';
 $('cfgurl').value = CFG.url || '';
-$('cfgauth').value = CFG.auth || '';
-$('cfgkey').value = CFG.key || '';
+$('cfgauth').value = '';
+$('cfgauth').placeholder = CFG.hasAuth ? 'Saved — leave blank to keep' : 'Bearer xxxx · Basic xxxx · user:password';
+$('cfgauthsaved').style.display = CFG.hasAuth ? '' : 'none';
+$('cfgkey').value = '';
+$('cfgkey').placeholder = CFG.hasKey ? 'Saved — leave blank to keep' : '';
+$('cfgkeysaved').style.display = CFG.hasKey ? '' : 'none';
 $('cfguser').value = CFG.user || '';
-$('cfgpass').value = CFG.pass || '';
+$('cfgpass').value = '';
+$('cfgpass').placeholder = CFG.hasPass ? 'Saved — leave blank to keep' : '';
+$('cfgpasssaved').style.display = CFG.hasPass ? '' : 'none';
 cfgUi();
 renderLog();
 renderList();
 if (INITIAL) {
   var initIdx = -1;
   for (var ri = 0; ri < RUNS.length; ri++) {
-    if (RUNS[ri].start === INITIAL) { initIdx = ri; break; }
+    if (rid(RUNS[ri]) === INITIAL) { initIdx = ri; break; }
   }
   if (initIdx < 0 && RUNS.length) initIdx = RUNS.length - 1;
   if (initIdx >= 0) showDetail(initIdx);

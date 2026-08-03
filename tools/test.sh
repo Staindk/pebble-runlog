@@ -6,8 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== build page bundle (injects the shared TCX/FIT exporters) =="
-node tools/build_page.js
+echo "== generated page freshness is checked by the page tests =="
 
 echo "== format unit tests (GPX / TCX / FIT bytes + CRC) =="
 node tools/test_formats.js
@@ -19,4 +18,4 @@ echo "== page tests (debrief render + config + downloads) =="
 node tools/test_export.js
 
 echo
-echo "ALL JS TESTS PASSED"
+echo "ALL TESTS PASSED"
