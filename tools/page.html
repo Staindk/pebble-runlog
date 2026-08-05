@@ -17,7 +17,7 @@
   .rcard .km{font-size:30px;font-weight:700;line-height:1;min-width:104px}
   .rcard .km small{font-size:12px;font-weight:400;color:#7d8a96;margin-left:3px}
   .rcard .info{flex:1;min-width:0}
-  .rcard .name{font-size:13px;color:#aeb9c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rcard .name{font-size:13px;color:#aeb9c4;line-height:1.25;overflow-wrap:anywhere}
   .rcard .chips{font-size:13px;color:#7d8a96;margin-top:3px}
   .badge{font-size:11px;border-radius:6px;padding:2px 6px;margin-left:8px;vertical-align:1px}
   .b1{background:#143d23;color:#5ad17f}.b2{background:#46201a;color:#ff8d70}
@@ -86,6 +86,8 @@
        color:#e8edf2;border:1px solid #26303a;border-radius:8px;padding:10px;font-size:14px}
   .tog{display:flex;align-items:center;gap:10px;font-size:14px;margin-top:4px}
   .tog input{width:20px;height:20px}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .locked{opacity:.55}
   .note{font-size:12px;color:#7d8a96;margin-top:10px}
   .logline{display:flex;gap:8px;font-size:12px;padding:3px 0;
            border-bottom:1px solid #222b33;align-items:baseline}
@@ -112,12 +114,23 @@
   <p class="sub" id="subline"></p>
   <div id="list"></div>
 
-  <div class="card" id="setcard">
-    <h2 style="margin-top:0">RUN NAME</h2>
-    <label>Default activity name template</label>
-    <input type="text" id="cfgname" placeholder="%Y-%m-%d_%H%M_{activity}"
-           autocapitalize="none" autocorrect="off" spellcheck="false">
-    <p class="note" id="cfgnamehint">Date/time codes (strftime): %Y year, %y 2-digit year, %m month, %d day, %H hour, %M min, %S sec, %F date (YYYY-MM-DD), %T time (HH:MM:SS), %R HH:MM, %a/%A weekday, %b/%B month name, %p AM/PM, %j day-of-year, %D US date, %% literal %. Extras: {activity}/{Activity}, {part}/{Part} (morning/afternoon/evening/night). ({date} and {time} still work.) Blank = default %Y-%m-%d_%H%M_{activity}.</p>
+  <div class="card" id="watchcard">
+    <h2 style="margin-top:0">WATCH &amp; WORKOUT</h2>
+    <label>Distance and pace units</label>
+    <select id="cfgunits" onchange="unitsUi()">
+      <option value="0">Kilometres</option>
+      <option value="1">Miles</option>
+    </select>
+    <label class="tog"><input type="checkbox" id="cfgautop"> Automatic pause and resume</label>
+    <label class="tog"><input type="checkbox" id="cfgsplits"> Distance split alerts</label>
+    <h2>HEART RATE</h2>
+    <label class="tog"><input type="checkbox" id="cfgzone"> Show the subtle zone label in the HR tile</label>
+    <div class="twocol">
+      <div><label>Maximum HR</label><input type="number" id="cfgmaxhr" min="120" max="220" inputmode="numeric"></div>
+      <div><label>Resting HR</label><input type="number" id="cfgrhr" min="0" max="120" inputmode="numeric" placeholder="0 = off"></div>
+    </div>
+    <p class="note">Zones use 60/70/80/90% of maximum HR. Resting HR is optional and improves the post-workout VO&#8322;max estimate.</p>
+    <p class="note" id="watchlock" style="display:none">These watch controls are locked until the active workout finishes. Targets below can still be changed live.</p>
     <h2>WORKOUT TARGET</h2>
     <label>Optional target shown on the watch</label>
     <select id="cfgtarget" onchange="targetUi()">
@@ -142,6 +155,14 @@
       <label>Slow edge (min/km)</label><input type="text" id="cfgtargetslow" placeholder="5:30" inputmode="decimal">
       <p class="note">RunLog shows the equivalent speed during rides. Brief GPS fluctuations are ignored before an alert.</p>
     </div>
+  </div>
+
+  <div class="card" id="setcard">
+    <h2 style="margin-top:0">RUN NAME</h2>
+    <label>Default activity name template</label>
+    <input type="text" id="cfgname" placeholder="%Y-%m-%d_%H%M_{activity}"
+           autocapitalize="none" autocorrect="off" spellcheck="false">
+    <p class="note" id="cfgnamehint">Date/time codes (strftime): %Y year, %y 2-digit year, %m month, %d day, %H hour, %M min, %S sec, %F date (YYYY-MM-DD), %T time (HH:MM:SS), %R HH:MM, %a/%A weekday, %b/%B month name, %p AM/PM, %j day-of-year, %D US date, %% literal %. Extras: {activity}/{Activity}, {part}/{Part} (morning/afternoon/evening/night). ({date} and {time} still work.) Blank = default %Y-%m-%d_%H%M_{activity}.</p>
     <h2>FILE FORMAT</h2>
     <label>Export / upload format</label>
     <select id="cfgfmt">
@@ -274,6 +295,7 @@ var DETAIL = "__RUNLOG_DETAIL__";
 var CUR = -1;
 var UD = MILES ? 1609.344 : 1000;
 var UN = MILES ? 'mi' : 'km';
+var UI_MI = MILES;
 
 /* The current Pebble phone app gives a configuration page one openURL call.
  * Every route therefore arrives in that first page as a compact URL-safe
@@ -1023,6 +1045,27 @@ function targetUi(){
   $('targetdist').style.display = t === 3 ? '' : 'none';
   $('targetpace').style.display = t === 4 ? '' : 'none';
 }
+function unitsUi(){
+  var nextMi = $('cfgunits').value === '1';
+  if (nextMi !== UI_MI) {
+    var v = Number($('cfgtargetdist').value);
+    if (isFinite(v) && v > 0) {
+      var metres = v * (UI_MI ? 1609.344 : 1000);
+      $('cfgtargetdist').value = Math.round(metres / (nextMi ? 1609.344 : 1000) * 10) / 10;
+    }
+    UI_MI = nextMi;
+  }
+  $('targetunit').textContent = UI_MI ? 'mi' : 'km';
+}
+function readWatchConfig(){
+  var mh = Math.round(Number($('cfgmaxhr').value) || 190);
+  var rh = Math.round(Number($('cfgrhr').value) || 0);
+  if (mh < 120 || mh > 220) mh = 190;
+  if (rh < 0 || rh > 120) rh = 0;
+  return { mi:$('cfgunits').value === '1', ap:$('cfgautop').checked,
+           splits:$('cfgsplits').checked, maxHr:mh, restHr:rh,
+           zone:$('cfgzone').checked };
+}
 function parseTargetPace(v){
   var s = String(v || '').replace(/^\s+|\s+$/g, ''), m = /^(\d+)(?::([0-5]?\d))?$/.exec(s);
   if (!m) return 0;
@@ -1036,7 +1079,7 @@ function readTarget(){
   var type = Number($('cfgtarget').value) || 0, lo = 0, hi = 0, value = 0;
   if (type === 1) value = Number($('cfgtargetzone').value) || 2;
   else if (type === 2) value = Math.max(0, Math.round(Number($('cfgtargetmins').value || 0) * 60));
-  else if (type === 3) value = Math.max(0, Math.round(Number($('cfgtargetdist').value || 0) * UD));
+  else if (type === 3) value = Math.max(0, Math.round(Number($('cfgtargetdist').value || 0) * (UI_MI ? 1609.344 : 1000)));
   else if (type === 4) { lo = parseTargetPace($('cfgtargetfast').value); hi = parseTargetPace($('cfgtargetslow').value); }
   return { type:type, lo:lo, hi:hi, value:value };
 }
@@ -1047,6 +1090,7 @@ function saveCfg(){
   closePage(JSON.stringify({ act:'cfg', cfg:{
     auto: 0,
     name: $('cfgname').value.replace(/^\s+|\s+$/g, ''),
+    watch: readWatchConfig(),
     target: readTarget(),
     fmt: $('cfgfmt').value,
     preset: $('cfgpreset').value,
@@ -1065,13 +1109,25 @@ function saveCfg(){
 }
 
 /* ---------- boot ---------- */
+var CW = CFG.watch || {mi:MILES ? 1 : 0,ap:1,splits:1,maxHr:190,restHr:0,zone:1};
+$('cfgunits').value = CW.mi ? '1' : '0';
+UI_MI = !!CW.mi;
+$('cfgautop').checked = CW.ap !== 0;
+$('cfgsplits').checked = CW.splits !== 0;
+$('cfgzone').checked = CW.zone !== 0;
+$('cfgmaxhr').value = CW.maxHr || 190;
+$('cfgrhr').value = CW.restHr || 0;
+if (CFG.active) {
+  ['cfgunits','cfgautop','cfgsplits','cfgzone','cfgmaxhr','cfgrhr'].forEach(function(id){ $(id).disabled = true; });
+  $('watchlock').style.display = '';
+}
 $('cfgname').value = CFG.name || '';
 var CT = CFG.target || {type:0,lo:0,hi:0,value:0};
 $('cfgtarget').value = String(CT.type || 0);
 $('cfgtargetzone').value = String(CT.value || 2);
 $('cfgtargetmins').value = CT.type === 2 && CT.value ? Math.round(CT.value / 60) : '';
-$('targetunit').textContent = UN;
-$('cfgtargetdist').value = CT.type === 3 && CT.value ? Math.round(CT.value / UD * 10) / 10 : '';
+$('targetunit').textContent = UI_MI ? 'mi' : 'km';
+$('cfgtargetdist').value = CT.type === 3 && CT.value ? Math.round(CT.value / (UI_MI ? 1609.344 : 1000) * 10) / 10 : '';
 $('cfgtargetfast').value = targetPaceText(CT.lo);
 $('cfgtargetslow').value = targetPaceText(CT.hi);
 targetUi();

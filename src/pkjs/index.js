@@ -75,6 +75,7 @@ var C = {
   ACT_NAME: ['Run', 'Walk', 'Ride', 'Hike'],
   NAME_TPL_DEFAULT: '%Y-%m-%d_%H%M_{activity}',   // includes time so same-day runs never share a filename
   MAX_SPEED: [12, 6, 30, 6],      // m/s outlier gate per activity
+  KF_ACCEL: [1.0, 0.7, 1.6, 0.7],// plausible acceleration noise: run, walk, ride, hike
   MOV_CAP_S: 20,                  // cap one inter-fix interval when accruing moving time (guard missed-pause gaps without over-trimming sparse fixes)
   IP_RESUME_MS: 1200000,          // on restart, resume an in-progress run if its checkpoint is younger than this; else recover+save
   GPS_IDLE_MS: 300000,            // release a warmed-up GPS receiver if no run starts within this long
@@ -94,8 +95,11 @@ var C = {
   PAUSE_GPS_GRACE_MS: 60000             // short manual pauses stay warm; long breaks release phone GPS
 };
 
-/* settings mirrored from the watch (UP-button menu) */
-var WSET = { mi: false, ap: true, splits: true, mode: 0, maxHr: 190, restHr: 0 };  // 0 run,1 walk,2 ride,3 hike; restHr 0=off
+/* Phone-managed workout settings, mirrored durably to the watch. Activity mode
+ * remains watch-local for instant pre-workout selection. `pending` survives a
+ * disconnected settings edit until a matching watch snapshot confirms it. */
+var WSET = { mi: false, ap: true, splits: true, mode: 0, maxHr: 190,
+             restHr: 0, zone: true, pending: false }; // restHr 0=off
 
 var ST = {
   act: 0, lastT: 0, lastTp: 0, tsWarned: false, fixLogged: false,
@@ -186,6 +190,15 @@ function sendState(ack, result) {
     TGHI: target.hi,
     TGVAL: target.value
   };
+  if (WSET.pending) {
+    d.CFGSET = 1;
+    d.UNITS = WSET.mi ? 1 : 0;
+    d.AUTOP = WSET.ap ? 1 : 0;
+    d.SPLITP = WSET.splits ? 1 : 0;
+    d.MHR = WSET.maxHr;
+    d.RHR = WSET.restHr;
+    d.HRZONE = WSET.zone ? 1 : 0;
+  }
   if (ack !== undefined && ack !== null) d.ACK = ack;
   if (result !== undefined && result !== null) d.RESULT = result ? 1 : 0;
   send(d, true);
@@ -458,6 +471,13 @@ function haversine(a, b) {
 }
 
 /* ------------------ GPS ------------------ */
+function newTrackFilter() {
+  return gps.make({
+    accelStd: activityValue(C.KF_ACCEL, ST.act),
+    maxSpeed: activityValue(C.MAX_SPEED, ST.act)
+  });
+}
+
 function startGeo() {
   if (ST.watchId !== null && ST.watchId !== undefined) return;   // already acquiring
   if (!navigator.geolocation) { sendStatus(0, null, false); return; }
@@ -577,7 +597,10 @@ function onFix(pos) {
   if (!ST.recording || ST.paused) { sendIfAny(telemetry); return; }
 
   var tp = fixTime(pos);                 // fractional seconds — ms precision for the filter & auto-pause
-  if (tp < ST.lastTp) tp = ST.lastTp;    // GPS clocks must never run backwards
+  // A duplicate or reordered timestamp cannot carry a defensible displacement.
+  // Skipping it is safer than coercing dt to a tiny positive value, which used
+  // to turn an ordinary coordinate delta into a kilometre-per-second velocity.
+  if (ST.lastTp > 0 && tp <= ST.lastTp) { sendIfAny(telemetry); return; }
   var t = Math.round(tp);
   if (t < ST.lastT) t = ST.lastT;
 
@@ -611,7 +634,7 @@ function onFix(pos) {
   if (accumulating) ST.lastRaw = rawFix;   // reference the next outlier check compares against
   if (!accumulating) { sendIfAny(telemetry); return; }
 
-  if (!ST.kf) ST.kf = gps.make();
+  if (!ST.kf) ST.kf = newTrackFilter();
   var sm = ST.kf.update(c.latitude, c.longitude, c.accuracy, tp);   // Kalman-smoothed (real dt: no zero-delta velocity spikes)
   var fix = {
     t: t,
@@ -696,7 +719,7 @@ function autoPauseCheck(fix) {
         ST.autopaused = false; ST.fastN = 0; ST.slowN = 0;
         ST.last = null; ST.segFlag = 1;     // new GPX segment on resume
         ST.stepHist = [];                   // fresh cadence window after the paused stretch
-        ST.kf = gps.make();                 // paused fixes skipped filtering; restart cleanly here
+        ST.kf = newTrackFilter();           // paused fixes skipped filtering; restart cleanly here
         resumeActive();
         recordEvent('auto_resume');
         persistInProgress();
@@ -777,7 +800,7 @@ function startRun(sid, startAt) {
       ST.preWatch = null;
     }
   }
-  ST.kf = gps.make();            // fresh GPS Kalman filter per run
+  ST.kf = newTrackFilter();       // fresh GPS Kalman filter per run
   ST.lastStatT = 0;              // push the first live stats promptly
   if (ST.idleTimer) { clearTimeout(ST.idleTimer); ST.idleTimer = null; }
   startGeo();                    // re-acquire GPS if a previous run released it
@@ -800,7 +823,7 @@ function resumeRun() {
   ST.paused = false; ST.autopaused = false;
   ST.slowN = 0; ST.fastN = 0;
   ST.last = null; ST.lastRaw = null; ST.segFlag = 1;
-  ST.kf = gps.make();            // manual-pause fixes skipped filtering
+  ST.kf = newTrackFilter();       // manual-pause fixes skipped filtering
   ST.stepHist = [];
   resumeActive();
   startGeo();                    // may have been released during a long manual Hike pause
@@ -1930,7 +1953,7 @@ function restoreFromInprogress(ip) {
   ST.lastTp = ST.lastT;
   ST.eleSm = (lastPt && lastPt.ele !== null && lastPt.ele !== undefined) ? lastPt.ele : null;
   ST.eleBase = ST.eleSm;
-  ST.kf = gps.make();                 // fresh filter; stored positions are already smoothed
+  ST.kf = newTrackFilter();            // stored positions are already smoothed
   // A HELLO may already have carried the restarted watch's raw step counter
   // before this stale checkpoint was rehydrated. Preserve that observation and
   // offset it to the recovered total instead of letting the next sample reset it.
@@ -2063,11 +2086,36 @@ function loadWatchSet() {
       WSET.mode = activityIndex(c.mode);
       if (c.maxHr >= 120 && c.maxHr <= 220) WSET.maxHr = c.maxHr;
       if (c.restHr >= 0 && c.restHr <= 120) WSET.restHr = c.restHr;
+      WSET.zone = c.zone !== false;
+      WSET.pending = !!c.pending;
     }
   } catch (e) {}
 }
 function storeWatchSet() {
   try { localStorage.setItem('runlog.set', JSON.stringify(WSET)); } catch (e) {}
+}
+
+function normaliseWatchConfig(w) {
+  w = w || {};
+  var maxHr = Math.round(Number(w.maxHr));
+  var restHr = Math.round(Number(w.restHr));
+  return {
+    mi: w.mi !== undefined ? !!w.mi : WSET.mi,
+    ap: w.ap !== undefined ? !!w.ap : WSET.ap,
+    splits: w.splits !== undefined ? !!w.splits : WSET.splits,
+    maxHr: maxHr >= 120 && maxHr <= 220 ? maxHr : WSET.maxHr,
+    restHr: restHr >= 0 && restHr <= 120 ? restHr : WSET.restHr,
+    zone: w.zone !== undefined ? !!w.zone : WSET.zone
+  };
+}
+
+function watchSnapshotMatches(p) {
+  return p.UNITS !== undefined && p.AUTOP !== undefined &&
+         p.SPLITP !== undefined && p.MHR !== undefined &&
+         p.RHR !== undefined && p.HRZONE !== undefined &&
+         (!!p.UNITS === WSET.mi) && (!!p.AUTOP === WSET.ap) &&
+         (!!p.SPLITP === WSET.splits) && (Number(p.MHR) === WSET.maxHr) &&
+         (Number(p.RHR) === WSET.restHr) && (!!p.HRZONE === WSET.zone);
 }
 
 /* ------------------ Manual export/upload ------------------ */
@@ -2437,12 +2485,20 @@ Pebble.addEventListener('ready', function () {
 Pebble.addEventListener('appmessage', function (e) {
   var p = (e && e.payload) || {};
   var setChanged = false;
-  if (p.UNITS !== undefined)  { WSET.mi = !!p.UNITS; setChanged = true; }
-  if (p.AUTOP !== undefined)  { WSET.ap = !!p.AUTOP; setChanged = true; }
-  if (p.SPLITP !== undefined) { WSET.splits = !!p.SPLITP; setChanged = true; }
+  // A phone edit remains authoritative until the watch echoes the complete
+  // applied snapshot. This prevents an old HELLO after a disconnected edit
+  // from silently overwriting the user's new settings.
+  if (WSET.pending) {
+    if (watchSnapshotMatches(p)) { WSET.pending = false; setChanged = true; }
+  } else {
+    if (p.UNITS !== undefined)  { WSET.mi = !!p.UNITS; setChanged = true; }
+    if (p.AUTOP !== undefined)  { WSET.ap = !!p.AUTOP; setChanged = true; }
+    if (p.SPLITP !== undefined) { WSET.splits = !!p.SPLITP; setChanged = true; }
+    if (p.MHR !== undefined && p.MHR >= 120 && p.MHR <= 220) { WSET.maxHr = p.MHR; setChanged = true; }
+    if (p.RHR !== undefined && p.RHR >= 0   && p.RHR <= 120) { WSET.restHr = p.RHR; setChanged = true; }
+    if (p.HRZONE !== undefined) { WSET.zone = !!p.HRZONE; setChanged = true; }
+  }
   if (p.MODE !== undefined)   { WSET.mode = activityIndex(p.MODE); setChanged = true; }
-  if (p.MHR !== undefined && p.MHR >= 120 && p.MHR <= 220) { WSET.maxHr = p.MHR; setChanged = true; }
-  if (p.RHR !== undefined && p.RHR >= 0   && p.RHR <= 120) { WSET.restHr = p.RHR; setChanged = true; }
   if (setChanged) storeWatchSet();
 
   var packetSid = (p.SID !== undefined) ? (p.SID >>> 0) : 0;
@@ -2788,7 +2844,11 @@ function pageCfg(c) {
     auto: c.auto ? 1 : 0, preset: c.preset, url: c.url || '',
     user: c.user || '', name: c.name || '', fmt: c.fmt || 'gpx',
     hasAuth: !!c.auth, hasKey: !!c.key, hasPass: !!c.pass,
-    hasTarget: hasTarget(c), target: normaliseWorkoutTarget(c.target)
+    hasTarget: hasTarget(c), target: normaliseWorkoutTarget(c.target),
+    active: ST.recording ? 1 : 0,
+    watch: { mi: WSET.mi ? 1 : 0, ap: WSET.ap ? 1 : 0,
+             splits: WSET.splits ? 1 : 0, maxHr: WSET.maxHr,
+             restHr: WSET.restHr, zone: WSET.zone ? 1 : 0 }
   };
 }
 function listRun(r) {
@@ -2978,9 +3038,25 @@ Pebble.addEventListener('webviewclosed', function (e) {
       fmt: (['gpx', 'tcx', 'fit'].indexOf(nc.fmt) >= 0) ? nc.fmt : 'gpx'
     };
     var workoutTargetChanged = JSON.stringify(oldCfg.target) !== JSON.stringify(nextCfg.target);
+    var watchSettingsChanged = false;
+    if (nc.watch && !ST.recording) {
+      var nw = normaliseWatchConfig(nc.watch);
+      watchSettingsChanged = nw.mi !== WSET.mi || nw.ap !== WSET.ap ||
+        nw.splits !== WSET.splits || nw.maxHr !== WSET.maxHr ||
+        nw.restHr !== WSET.restHr || nw.zone !== WSET.zone;
+      if (watchSettingsChanged) {
+        WSET.mi = nw.mi; WSET.ap = nw.ap; WSET.splits = nw.splits;
+        WSET.maxHr = nw.maxHr; WSET.restHr = nw.restHr; WSET.zone = nw.zone;
+        WSET.pending = true;
+        storeWatchSet();
+      }
+    } else if (nc.watch && ST.recording) {
+      rlog('watch settings unchanged: finish the active workout first');
+    }
     rlog('settings saved (' + (act.cfg.preset || 'custom') + ')');
     storeCfg(nextCfg);
-    if (workoutTargetChanged) sendState(); // sync a changed target immediately
+    if (workoutTargetChanged || watchSettingsChanged || WSET.pending)
+      sendState(); // one protected packet carries target + any pending watch settings
     // Keep a valid FitTrackee token across unrelated edits (name/format).
     if (oldCfg.preset !== nextCfg.preset || oldCfg.url !== nextCfg.url ||
         oldCfg.user !== nextCfg.user || oldCfg.pass !== nextCfg.pass ||

@@ -297,6 +297,57 @@ console.log('\nALL FORMAT TESTS PASSED');
   assert(eRaw > 0.10, 'kalman: raw 1 Hz jitter inflates distance >10% (sanity, got ' + (eRaw * 100).toFixed(1) + '%)');
   assert(eFilt < 0.05, 'kalman: filtered distance within 5% of truth (got ' + (eFilt * 100).toFixed(1) + '%)');
   assert(eFilt < eRaw / 3, 'kalman: filter cuts distance error to <1/3 of raw');
+
+  function xy(f, east, north, sec, acc) {
+    var o = f.update(lat + north / 110540,
+                     115.85 + east / (111320 * coslat), acc, sec);
+    return { x: (o.lon - 115.85) * 111320 * coslat,
+             y: (o.lat - lat) * 110540, speed: o.speed };
+  }
+
+  // (3) an equal/reordered timestamp is ignored. The old 1 ms coercion turned
+  // a harmless 3 m delta into a 3000 m/s state and threw later points forward.
+  var fd = K.make({ maxSpeed: 12 });
+  var da = xy(fd, 0, 0, 10, 8);
+  var dd = xy(fd, 3, 0, 10, 8);
+  var dn = xy(fd, 6, 0, 11, 8);
+  assert(Math.abs(dd.x - da.x) < 0.2, 'kalman: duplicate timestamp does not move state');
+  assert(dn.speed <= 12.001 && dn.x > 0 && dn.x < 10,
+         'kalman: sample after duplicate remains bounded and forward');
+
+  // (4) a real 90-degree turn must not produce the old wide hook. This is the
+  // failure a straight-only distance test cannot expose.
+  var ft = K.make({ maxSpeed: 12, accelStd: 1.0 }), turn = [], maxEast = 0;
+  for (var u = 0; u <= 20; u++) turn.push(xy(ft, 3 * u, 0, u, 8));
+  for (var v = 21; v <= 40; v++) {
+    var tv = xy(ft, 60, 3 * (v - 20), v, 8);
+    turn.push(tv); if (tv.x > maxEast) maxEast = tv.x;
+  }
+  var turnPairs = turn.map(function (p) {
+    return [lat + p.y / 110540, 115.85 + p.x / (111320 * coslat)];
+  });
+  assert(Math.abs(dist(turnPairs) - 120) / 120 < 0.03,
+         'kalman: right-angle route distance stays within 3%');
+  assert(maxEast < 63,
+         'kalman: turn overshoot stays below 3 m (got ' + maxEast.toFixed(1) + ' m)');
+
+  // (5) W3C accuracy is a 95%-confidence radius. A precise fix should pull
+  // much harder than a fuzzy one after the same history.
+  function accuracyPull(acc) {
+    var fa = K.make({ maxSpeed: 12 });
+    xy(fa, 0, 0, 0, 8); xy(fa, 3, 0, 1, 8); xy(fa, 6, 0, 2, 8);
+    return xy(fa, 15, 0, 3, acc).x;
+  }
+  assert(accuracyPull(3) > accuracyPull(40) + 3,
+         'kalman: reported confidence materially controls measurement gain');
+
+  // (6) stale velocity is meaningless after a long GPS outage: re-anchor at
+  // the returned fix rather than predicting beyond it.
+  var fg = K.make({ maxSpeed: 12 });
+  xy(fg, 0, 0, 0, 8); xy(fg, 3, 0, 1, 8);
+  var gap = xy(fg, 100, 0, 100, 8);
+  assert(Math.abs(gap.x - 100) < 0.2 && gap.speed === 0,
+         'kalman: long gap re-anchors without stale-velocity overshoot');
   console.log('KALMAN OK');
 })();
 

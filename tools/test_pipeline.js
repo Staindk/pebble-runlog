@@ -256,7 +256,8 @@ function storedRuns(W) {
 
   W.fire('appmessage', { payload: { UNITS: 0, AUTOP: 1, SPLITP: 1 } });
   assert.deepStrictEqual(JSON.parse(W.store['runlog.set']),
-    { mi: false, ap: true, splits: true, mode: 0, maxHr: 190, restHr: 0 }, 'watch settings persisted');
+    { mi: false, ap: true, splits: true, mode: 0, maxHr: 190, restHr: 0,
+      zone: true, pending: false }, 'watch settings persisted');
 
   W.clockMs = 1750000000000;
   W.fire('appmessage', { payload: { CMD: 1 } });
@@ -1639,12 +1640,13 @@ function storedRuns(W) {
   fix(t0 + 2, 91, 115.85, 8, 20);            // invalid latitude
   fix(t0 + 3, -31.95, 181, 8, 20);           // invalid longitude
   fix(t0 + 5, -31.95, 115.85, 8, 20);        // first valid anchor
+  fix(t0 + 6, -31.95, 115.8502, 8, 20, (t0 + 5) * 1000); // duplicate source time
   fix(t0 + 10, 20, 20, 8, 20, (t0 + 3600) * 1000); // future-dated spatial outlier
   fix(t0 + 15, -31.95, 115.8503, 8, Infinity);      // normal fix after it
   W.fire('appmessage', { payload: { CMD: 4 } });
 
   var r = storedRuns(W)[0];
-  assert.strictEqual(r.pts.length, 2, 'only valid, non-outlier fixes are stored');
+  assert.strictEqual(r.pts.length, 2, 'only valid, ordered, non-outlier fixes are stored');
   assert.strictEqual(r.pts[1][3], '', 'non-finite altitude becomes missing, not NaN');
   assert(r.dur < 60 && r.mov <= 20, 'future outlier did not pin the monotonic clock');
   assert(!/NaN|Infinity/.test(JSON.stringify(r)), 'stored numeric fields remain finite and serializable');
@@ -2177,6 +2179,51 @@ function storedRuns(W) {
   assert.strictEqual(lastWith(W, 'TGTYPE'), null,
                      'unrelated export edit creates no unnecessary target radio message');
   console.log('scenario 33 (target configuration and radio discipline) OK');
+})();
+
+/* =======================================================================
+ * 34 — phone-first watch settings survive a disconnected/stale HELLO, travel
+ * in one protected packet, and clear their pending marker only after the watch
+ * echoes the complete applied snapshot.
+ * ===================================================================== */
+(function scenario34() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {}); W.msgs.length = 0;
+  var changed = {mi:true,ap:false,splits:false,maxHr:185,restHr:50,zone:false};
+  W.fire('webviewclosed', { response: JSON.stringify({ act:'cfg', cfg:{
+    preset:'custom', url:'', name:'', fmt:'gpx', target:{type:0,lo:0,hi:0,value:0},
+    watch:changed
+  } }) });
+  var m = lastWith(W, 'CFGSET');
+  assert(m && m.CFGSET === 1 && m.UNITS === 1 && m.AUTOP === 0 &&
+         m.SPLITP === 0 && m.MHR === 185 && m.RHR === 50 && m.HRZONE === 0,
+         'all phone-managed watch settings share one protected sync packet');
+  var stored = JSON.parse(W.store['runlog.set']);
+  assert.strictEqual(stored.pending, true, 'unconfirmed phone edit is durable');
+
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,PROTO:3,SID:0,SEQ:0,WSTATE:0,
+    UNITS:0,AUTOP:1,SPLITP:1,MODE:0,MHR:190,RHR:0,HRZONE:1} });
+  stored = JSON.parse(W.store['runlog.set']);
+  assert(stored.mi && !stored.ap && !stored.splits && stored.maxHr === 185 &&
+         stored.restHr === 50 && !stored.zone && stored.pending,
+         'stale watch HELLO cannot overwrite a pending phone edit');
+  assert(lastWith(W, 'CFGSET'), 'pending settings are retried during reconciliation');
+
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,PROTO:3,SID:0,SEQ:0,WSTATE:0,
+    UNITS:1,AUTOP:0,SPLITP:0,MODE:0,MHR:185,RHR:50,HRZONE:0} });
+  stored = JSON.parse(W.store['runlog.set']);
+  assert.strictEqual(stored.pending, false, 'matching complete watch snapshot acknowledges settings');
+  assert.strictEqual(lastWith(W, 'CFGSET'), null, 'acknowledged settings stop consuming radio packets');
+
+  W.msgs.length = 0;
+  W.fire('webviewclosed', { response: JSON.stringify({ act:'cfg', cfg:{
+    preset:'custom', url:'', name:'', fmt:'tcx', target:{type:0,lo:0,hi:0,value:0},
+    watch:changed
+  } }) });
+  assert.strictEqual(lastWith(W, 'CFGSET'), null,
+                     'unrelated export edit does not resend unchanged watch settings');
+  console.log('scenario 34 (durable phone-first watch settings) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');

@@ -16,8 +16,8 @@ typedef enum {
   HB_WALK,       // activity: walk
   HB_BIKE,       // activity: ride
   HB_HIKE,       // activity: hike
-  HB_UP,         // chevron up (scroll)
-  HB_DOWN,       // chevron down (scroll)
+  HB_UP,         // chevron up (previous page / scroll)
+  HB_DOWN,       // chevron down (next page / scroll)
   HB_MENU,       // kebab (open actions)
   HB_UPLOAD,     // upload
   HB_TRASH,      // discard

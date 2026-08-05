@@ -1,24 +1,23 @@
 /* RunLog — post-run watch debrief
  *
- * Scrollable summary pushed when the phone confirms a save:
- *   distance hero -> route card -> pace + heart-rate mini graphs
- *   -> 3x2 stat grid -> upload status.
+ * Three fixed, button-paged screens pushed when the phone confirms a save:
+ *   route -> stats -> pace/heart-rate trends.
  *
- * Route + graph data arrive from the phone as byte arrays (TRACK,
- * PACEG, HRG); each section quietly shows a placeholder until its
- * data lands, then refreshes in place.
+ * Route + graph data arrive from the phone as byte arrays (TRACK, PACEG, HRG);
+ * the visible page refreshes in place as each packet lands. There is no tall
+ * scroll surface: one UP/DOWN press always means exactly one screen.
  */
 #include <pebble.h>
 #include "runlog.h"
 #include "hintbar.h"
 
 static Window *s_win = NULL;
-static ScrollLayer *s_scroll;
-static Layer *s_track_layer, *s_graphs_layer, *s_stats_layer;
+static Layer *s_page_layer;
 static Layer *s_bar = NULL;             // fixed right-edge action bar
-static TextLayer *s_title, *s_dist, *s_upload, *s_hint, *s_banner;
-static int s_menu = 0;     // 0 scroll, 1 menu, 2 confirm-discard, 3 confirm-upload
-static int s_off = 0, s_content_h = 0, s_scr_h = 0;   // manual scrolling
+static TextLayer *s_banner;
+static int s_menu = 0;     // 0 pages, 1 menu, 2 confirm-discard, 3 confirm-upload
+enum { PAGE_ROUTE = 0, PAGE_STATS, PAGE_TRENDS, PAGE_COUNT };
+static int s_page = PAGE_ROUTE;
 /* The route and graphs stream in a moment after the stats. If the user has
  * already walked away from the debrief, a late TRACK/PACEG packet must not
  * shove it back in their face. */
@@ -31,7 +30,9 @@ static char s_pace_rng[24], s_hr_rng[16];     // graph caption ranges
 static int s_upload_state = -1;               // -1 hidden, 0 uploading, 1 ok, 2 failed, 3 no track
 static int s_upload_err = 0;                  // HTTP status of a failure, 0 = network
 static bool s_big = true;
-static int s_loaded_act = -1;                 // activity used to size the current layout
+static GFont s_banner_fitted_font;
+
+static void prv_apply_mode(void);
 
 /* s_win outlives a single showing (see summary_deinit), so "do we have a window"
  * is not the same question as "is the user looking at it". */
@@ -42,11 +43,43 @@ static bool prv_visible(void) {
 static GColor prv_accent(void) { return PBL_IF_COLOR_ELSE(GColorOrange, GColorBlack); }
 static GColor prv_muted(void)  { return PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack); }
 
+/* Immediate-mode text does not have TextLayer's persistent font state, so fit
+ * every string at draw time. The final 09 face is intentionally tiny but it is
+ * still preferable to clipping, wrapping a two-word caption, or hiding the end
+ * of a value. */
+static GFont prv_fitted_font(const char *text, const char *preferred,
+                             int available) {
+  static const char *const keys[] = {
+    FONT_KEY_GOTHIC_28_BOLD, FONT_KEY_GOTHIC_24_BOLD,
+    FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_14_BOLD,
+    FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_09
+  };
+  int start = 0;
+  for (size_t i = 0; i < ARRAY_LENGTH(keys); i++) {
+    if (strcmp(preferred, keys[i]) == 0) { start = (int)i; break; }
+  }
+  for (size_t i = (size_t)start; i < ARRAY_LENGTH(keys); i++) {
+    GFont font = fonts_get_system_font(keys[i]);
+    GSize measured = graphics_text_layout_get_content_size(
+        text, font, GRect(0, 0, 1000, 40),
+        GTextOverflowModeFill, GTextAlignmentLeft);
+    if (measured.w <= available) return font;
+  }
+  return fonts_get_system_font(FONT_KEY_GOTHIC_09);
+}
+
 static void prv_draw_text(GContext *ctx, const char *text, const char *font,
                           GRect frame, GTextAlignment align, GColor color) {
   graphics_context_set_text_color(ctx, color);
-  graphics_draw_text(ctx, text, fonts_get_system_font(font), frame,
-                     GTextOverflowModeTrailingEllipsis, align, NULL);
+  const int available = frame.size.w > 2 ? frame.size.w - 2 : 1;
+  graphics_draw_text(ctx, text,
+                     prv_fitted_font(text, font, available), frame,
+                     GTextOverflowModeFill, align, NULL);
+}
+
+static void prv_draw_value(GContext *ctx, const char *text, const char *font,
+                           GRect frame, GTextAlignment align, GColor color) {
+  prv_draw_text(ctx, text, font, frame, align, color);
 }
 
 /* ---------------- route card ---------------- */
@@ -58,9 +91,7 @@ static GPoint prv_track_point(GRect plot, int i) {
                 oy + g_stats.trk[i].y * scale / 200);
 }
 
-static void prv_track_update(Layer *layer, GContext *ctx) {
-  GRect b = layer_get_bounds(layer);
-
+static void prv_draw_track(GContext *ctx, GRect b) {
   graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite));
   graphics_fill_rect(ctx, b, 6, GCornersAll);
 #if !defined(PBL_COLOR)
@@ -68,17 +99,25 @@ static void prv_track_update(Layer *layer, GContext *ctx) {
   graphics_draw_round_rect(ctx, b, 6);
 #endif
 
-  prv_draw_text(ctx, "ROUTE", FONT_KEY_GOTHIC_14, GRect(8, 0, b.size.w - 16, 16),
+  prv_draw_text(ctx, "ROUTE", FONT_KEY_GOTHIC_14,
+                GRect(b.origin.x + 8, b.origin.y, b.size.w - 16, 16),
                 GTextAlignmentLeft, prv_muted());
 
   if (g_stats.trk_n < 2) {
-    prv_draw_text(ctx, "waiting for phone...", FONT_KEY_GOTHIC_14,
-                  GRect(0, b.size.h / 2 - 9, b.size.w, 18),
-                  GTextAlignmentCenter, prv_muted());
+    const bool no_route = (g_stats.route == 0);
+    prv_draw_text(ctx, no_route ? "NO GPS ROUTE" : "LOADING ROUTE",
+                  FONT_KEY_GOTHIC_18_BOLD,
+                  GRect(b.origin.x + 4, b.origin.y + b.size.h / 2 - 21,
+                        b.size.w - 8, 24), GTextAlignmentCenter, prv_muted());
+    prv_draw_text(ctx, no_route ? "TIME + SENSORS" : "FROM PHONE",
+                  FONT_KEY_GOTHIC_14,
+                  GRect(b.origin.x + 4, b.origin.y + b.size.h / 2 + 1,
+                        b.size.w - 8, 20), GTextAlignmentCenter, prv_muted());
     return;
   }
 
-  GRect plot = GRect(8, 18, b.size.w - 16, b.size.h - 26);
+  GRect plot = GRect(b.origin.x + 8, b.origin.y + 18,
+                     b.size.w - 16, b.size.h - 26);
 
   // faint crosshair through the card centre — orients the eye without
   // pretending to be a street map
@@ -124,7 +163,8 @@ static void prv_track_update(Layer *layer, GContext *ctx) {
 
   // north marker (top-right) — the route is drawn map-oriented, north up
   prv_draw_text(ctx, "N", FONT_KEY_GOTHIC_14_BOLD,
-                GRect(b.size.w - 18, 16, 14, 16), GTextAlignmentCenter, prv_muted());
+                GRect(b.origin.x + b.size.w - 18, b.origin.y + 16, 14, 16),
+                GTextAlignmentCenter, prv_muted());
 
   // span label (bottom-left) so the sketch has a sense of scale
   if (g_stats.trk_span_m > 0) {
@@ -139,7 +179,9 @@ static void prv_track_update(Layer *layer, GContext *ctx) {
       else
         snprintf(sb, sizeof(sb), "%d m", g_stats.trk_span_m);
     }
-    prv_draw_text(ctx, sb, FONT_KEY_GOTHIC_14, GRect(8, b.size.h - 17, b.size.w - 16, 16),
+    prv_draw_text(ctx, sb, FONT_KEY_GOTHIC_14,
+                  GRect(b.origin.x + 8, b.origin.y + b.size.h - 17,
+                        b.size.w - 16, 16),
                   GTextAlignmentLeft, prv_muted());
   }
 }
@@ -147,10 +189,15 @@ static void prv_track_update(Layer *layer, GContext *ctx) {
 /* ---------------- mini graphs ---------------- */
 static void prv_graph(GContext *ctx, GRect r, const char *cap, const char *rng,
                       const uint8_t *g, int n, bool invert, GColor line) {
+  const int range_w = s_big ? 90 : 58;
+  const int gap = rng[0] ? 4 : 0;
   prv_draw_text(ctx, cap, FONT_KEY_GOTHIC_14_BOLD, GRect(r.origin.x, r.origin.y,
-                r.size.w - 70, 16), GTextAlignmentLeft, prv_muted());
-  prv_draw_text(ctx, rng, FONT_KEY_GOTHIC_14, GRect(r.origin.x + r.size.w - 90,
-                r.origin.y, 90, 16), GTextAlignmentRight, prv_muted());
+                rng[0] ? r.size.w - range_w - gap : r.size.w, 16),
+                GTextAlignmentLeft, prv_muted());
+  prv_draw_text(ctx, rng, FONT_KEY_GOTHIC_14,
+                GRect(r.origin.x + r.size.w - range_w,
+                      r.origin.y, range_w, 16),
+                GTextAlignmentRight, prv_muted());
 
   GRect c = GRect(r.origin.x, r.origin.y + 18, r.size.w, r.size.h - 20);
   graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack));
@@ -182,17 +229,17 @@ static void prv_graph(GContext *ctx, GRect r, const char *cap, const char *rng,
   }
 }
 
-static void prv_graphs_update(Layer *layer, GContext *ctx) {
-  GRect b = layer_get_bounds(layer);
+static void prv_draw_graphs(GContext *ctx, GRect b) {
   int gh = b.size.h / 2;
   const char *pcap = (g_stats.act == MODE_CYCLE)
-      ? (g_set.miles ? "SPEED MPH" : "SPEED KMH")
-      : (g_set.miles ? "PACE /MI" : "PACE /KM");
-  prv_graph(ctx, GRect(0, 0, b.size.w, gh - 4),
+      ? (g_set.miles ? (s_big ? "SPEED MPH" : "MPH")
+                     : (s_big ? "SPEED KMH" : "KM/H"))
+      : (g_set.miles ? "PACE/MI" : "PACE/KM");
+  prv_graph(ctx, GRect(b.origin.x, b.origin.y, b.size.w, gh - 4),
             pcap, s_pace_rng,
             g_stats.pace_g, g_stats.pace_n, true, prv_accent());
-  prv_graph(ctx, GRect(0, gh, b.size.w, gh - 4),
-            "HEART RATE", s_hr_rng,
+  prv_graph(ctx, GRect(b.origin.x, b.origin.y + gh, b.size.w, gh - 4),
+            s_big ? "HEART RATE" : "HR", s_hr_rng,
             g_stats.hr_g, g_stats.hr_n, false,
             PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
 }
@@ -202,13 +249,15 @@ static void prv_metric(GContext *ctx, GRect r, const char *cap,
                        const char *val, GColor value_color, bool big) {
   prv_draw_text(ctx, cap, FONT_KEY_GOTHIC_14, GRect(r.origin.x, r.origin.y,
                 r.size.w, 16), GTextAlignmentCenter, prv_muted());
-  prv_draw_text(ctx, val, big ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD,
-                GRect(r.origin.x, r.origin.y + 12, r.size.w, r.size.h - 12),
-                GTextAlignmentCenter, value_color);
+  const char *font = big && strlen(val) <= 7
+      ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD;
+  prv_draw_value(ctx, val, font,
+                 GRect(r.origin.x + 1, r.origin.y + 12,
+                       r.size.w - 2, r.size.h - 12),
+                 GTextAlignmentCenter, value_color);
 }
 
-static void prv_stats_update(Layer *layer, GContext *ctx) {
-  GRect b = layer_get_bounds(layer);
+static void prv_draw_stats(GContext *ctx, GRect b) {
   bool run  = (g_stats.act == MODE_RUN);    // only runs carry a VO2max estimate
   int rows  = run ? 4 : 3;                  // extra full-width row for VO2max
   int row_h = b.size.h / rows;
@@ -221,21 +270,27 @@ static void prv_stats_update(Layer *layer, GContext *ctx) {
 
   graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack));
   for (int rrow = 1; rrow < rows; rrow++) {                 // dividers between every row
-    graphics_draw_line(ctx, GPoint(10, rrow * row_h), GPoint(b.size.w - 10, rrow * row_h));
+    int y = b.origin.y + rrow * row_h;
+    graphics_draw_line(ctx, GPoint(b.origin.x + 10, y),
+                            GPoint(b.origin.x + b.size.w - 10, y));
   }
   for (int rrow = 0; rrow < 3; rrow++) {                    // column split for the paired rows
-    graphics_draw_line(ctx, GPoint(col_w, rrow * row_h + 6),
-                            GPoint(col_w, (rrow + 1) * row_h - 6));
+    graphics_draw_line(ctx, GPoint(b.origin.x + col_w,
+                                   b.origin.y + rrow * row_h + 6),
+                            GPoint(b.origin.x + col_w,
+                                   b.origin.y + (rrow + 1) * row_h - 6));
   }
 
   for (int i = 0; i < 6; i++) {
-    GRect cell = GRect((i % 2) * col_w, (i / 2) * row_h,
+    GRect cell = GRect(b.origin.x + (i % 2) * col_w,
+                       b.origin.y + (i / 2) * row_h,
                        (i % 2) ? (b.size.w - col_w) : col_w, row_h);
     prv_metric(ctx, cell, caps[i], s_v[i],
                (i == 1) ? prv_accent() : GColorBlack, s_big);
   }
   if (run) {   // VO2max spans the full width of the 4th row
-    prv_metric(ctx, GRect(0, 3 * row_h, b.size.w, row_h),
+    prv_metric(ctx, GRect(b.origin.x, b.origin.y + 3 * row_h,
+                          b.size.w, row_h),
                "VO2 MAX", s_vo2_buf, prv_accent(), false);
   }
 }
@@ -289,49 +344,140 @@ static void prv_fill_texts(void) {
     snprintf(s_hr_rng, sizeof(s_hr_rng), "%d-%d", g_stats.hr_min, g_stats.hr_max);
   } else s_hr_rng[0] = 0;
 
-  if (s_dist) text_layer_set_text(s_dist, s_dist_buf);
-  if (s_title) text_layer_set_text(s_title, s_title_buf);
-  if (s_stats_layer) layer_mark_dirty(s_stats_layer);
-  if (s_graphs_layer) layer_mark_dirty(s_graphs_layer);
-
+  if (s_page_layer) layer_mark_dirty(s_page_layer);
 }
 
 static void prv_show_upload(void) {
-  if (!s_upload) return;   // stored anyway; rendered when the window next loads
-  GColor c = prv_muted();
   if (s_upload_state == 0) {
-    snprintf(s_upload_buf, sizeof(s_upload_buf), "Uploading...");
+    snprintf(s_upload_buf, sizeof(s_upload_buf), "UPLOADING");
   } else if (s_upload_state == 1) {
-    snprintf(s_upload_buf, sizeof(s_upload_buf), "Uploaded");
-    c = PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack);
+    snprintf(s_upload_buf, sizeof(s_upload_buf), "UPLOADED");
   } else if (s_upload_state == 3) {
     // The phone had no GPS track to send. Saying "Saved on phone" here (the old
     // default branch) reported a failure as a success.
-    snprintf(s_upload_buf, sizeof(s_upload_buf), "Nothing to upload");
-    c = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
+    snprintf(s_upload_buf, sizeof(s_upload_buf), "NO ROUTE");
   } else if (s_upload_state == 2) {
     // surface the reason so a failure is diagnosable from the wrist
     if (s_upload_err > 0) {
-      snprintf(s_upload_buf, sizeof(s_upload_buf), "Upload failed (%d)", s_upload_err);
+      snprintf(s_upload_buf, sizeof(s_upload_buf), "FAILED / %d", s_upload_err);
     } else {
-      snprintf(s_upload_buf, sizeof(s_upload_buf), "Upload failed (net)");
+      snprintf(s_upload_buf, sizeof(s_upload_buf), "FAILED / NETWORK");
     }
-    c = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
   } else {
-    snprintf(s_upload_buf, sizeof(s_upload_buf), "Saved on phone");
+    // RUN SAVED already conveys the normal local state. Keep the route page
+    // quiet until there is an upload outcome that genuinely needs attention.
+    s_upload_buf[0] = 0;
   }
-  text_layer_set_text_color(s_upload, c);
-  text_layer_set_text(s_upload, s_upload_buf);
+  if (s_page_layer) layer_mark_dirty(s_page_layer);
+}
+
+static GColor prv_upload_color(void) {
+  if (s_upload_state == 1)
+    return PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack);
+  if (s_upload_state == 2 || s_upload_state == 3)
+    return PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
+  return prv_muted();
+}
+
+/* All banner copy is fitted before it reaches its one-line layer. Status and
+ * confirmation text must never degrade into an ellipsis on 144 px watches. */
+static void prv_set_banner(const char *text, GColor background) {
+  if (!s_banner) return;
+  static const char *const keys[] = {
+    FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_09
+  };
+  GRect bounds = layer_get_bounds(text_layer_get_layer(s_banner));
+  GFont fitted = fonts_get_system_font(keys[ARRAY_LENGTH(keys) - 1]);
+  for (size_t i = 0; i < ARRAY_LENGTH(keys); i++) {
+    GFont candidate = fonts_get_system_font(keys[i]);
+    GSize measured = graphics_text_layout_get_content_size(
+        text, candidate, GRect(0, 0, 1000, 30),
+        GTextOverflowModeFill, GTextAlignmentCenter);
+    if (measured.w <= bounds.size.w - 4) { fitted = candidate; break; }
+  }
+  if (fitted != s_banner_fitted_font) {
+    s_banner_fitted_font = fitted;
+    text_layer_set_font(s_banner, fitted);
+  }
+  text_layer_set_background_color(s_banner, background);
+  text_layer_set_text_color(s_banner, GColorWhite);
+  text_layer_set_text(s_banner, text);
+}
+
+/* ---------------- fixed page composition ---------------- */
+static int prv_draw_header(GContext *ctx, GRect b, const char *title) {
+  const int h = s_big ? 27 : 22;
+  const char *pos = s_page == PAGE_ROUTE ? "1/3" :
+                    s_page == PAGE_STATS ? "2/3" : "3/3";
+
+  GColor title_color = (s_page == PAGE_ROUTE)
+      ? PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack) : GColorBlack;
+  bool compact = !s_big && strlen(title) > 7;
+  prv_draw_text(ctx, title, compact ? FONT_KEY_GOTHIC_14_BOLD
+                                    : FONT_KEY_GOTHIC_18_BOLD,
+                GRect(b.origin.x + 7, b.origin.y + (compact ? 1 : -2),
+                      b.size.w - 48, h),
+                GTextAlignmentLeft, title_color);
+  prv_draw_text(ctx, pos, FONT_KEY_GOTHIC_14_BOLD,
+                GRect(b.origin.x + b.size.w - 40, b.origin.y,
+                      34, h - 2), GTextAlignmentRight, prv_muted());
+
+  int y = b.origin.y + h - 2;
+  graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite));
+  graphics_fill_rect(ctx, GRect(b.origin.x + 7, y, b.size.w - 14, 1), 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, prv_accent());
+  graphics_fill_rect(ctx, GRect(b.origin.x + 7, y, s_big ? 34 : 26, 2), 0, GCornerNone);
+  return h;
+}
+
+static void prv_draw_route_page(GContext *ctx, GRect b) {
+  const int header_h = prv_draw_header(ctx, b, s_title_buf);
+  const int dist_h = s_big ? 42 : 38;
+  const int status_h = s_upload_buf[0] ? 18 : 0;
+  int card_y = b.origin.y + header_h + 2;
+  int card_h = b.size.h - header_h - dist_h - status_h - 4;
+  if (card_h < 62) card_h = 62;
+
+  prv_draw_track(ctx, GRect(b.origin.x + 6, card_y,
+                            b.size.w - 12, card_h));
+
+  int dist_y = card_y + card_h;
+  prv_draw_value(ctx, s_dist_buf, FONT_KEY_GOTHIC_28_BOLD,
+                 GRect(b.origin.x, dist_y - 1, b.size.w, dist_h),
+                 GTextAlignmentCenter, GColorBlack);
+  if (status_h) {
+    prv_draw_text(ctx, s_upload_buf, FONT_KEY_GOTHIC_14_BOLD,
+                  GRect(b.origin.x, dist_y + dist_h - 3,
+                        b.size.w, status_h),
+                  GTextAlignmentCenter, prv_upload_color());
+  }
+}
+
+static void prv_draw_stats_page(GContext *ctx, GRect b) {
+  const int header_h = prv_draw_header(ctx, b, "STATS");
+  prv_draw_stats(ctx, GRect(b.origin.x, b.origin.y + header_h,
+                            b.size.w, b.size.h - header_h));
+}
+
+static void prv_draw_trends_page(GContext *ctx, GRect b) {
+  const int header_h = prv_draw_header(ctx, b, "TRENDS");
+  prv_draw_graphs(ctx, GRect(b.origin.x + 8, b.origin.y + header_h + 2,
+                             b.size.w - 16, b.size.h - header_h - 4));
+}
+
+static void prv_page_update(Layer *layer, GContext *ctx) {
+  GRect b = layer_get_bounds(layer);
+  if (s_page == PAGE_ROUTE)      prv_draw_route_page(ctx, b);
+  else if (s_page == PAGE_STATS) prv_draw_stats_page(ctx, b);
+  else                           prv_draw_trends_page(ctx, b);
 }
 
 /* ---- voice rename (Dictation API) ---- */
 static void prv_show_comms_error(void) {
   s_menu = 0;
-  if (s_bar) hintbar_set_icons(s_bar, HB_UP, HB_MENU, HB_NONE, HB_DOWN);
-  if (!s_banner) return;
-  text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
-  text_layer_set_text_color(s_banner, GColorWhite);
-  text_layer_set_text(s_banner, "Phone unavailable");
+  prv_apply_mode();
+  prv_set_banner("PHONE UNAVAILABLE",
+                 PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
 }
 
 #if defined(PBL_MICROPHONE)
@@ -342,9 +488,8 @@ static void prv_dictation_cb(DictationSession *session, DictationSessionStatus s
   (void)session; (void)context;
   if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
     if (comms_send_rename(transcription) && s_banner) { // phone renames the just-saved run
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
-      text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Renaming...");
+      prv_set_banner("RENAMING",
+                     PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
     } else prv_show_comms_error();
   }
 }
@@ -360,70 +505,68 @@ static bool prv_start_rename(void) {
 #else
 static bool prv_start_rename(void) {
   if (s_banner) {
-    text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
-    text_layer_set_text_color(s_banner, GColorWhite);
-    text_layer_set_text(s_banner, "No mic on this watch");
+    prv_set_banner("NO MICROPHONE",
+                   PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
   }
   return false;
 }
 #endif
 
-/* ---- scrolling + the SELECT "\u22ee" actions menu ----
+/* ---- paging + the SELECT "\u22ee" actions menu ----
  * The run is already saved on the phone; this menu is for optional extras.
- * Scroll mode: UP/DOWN scroll, SELECT opens the actions menu.
+ * Page mode: UP/DOWN move one complete screen, SELECT opens the actions menu.
  * Menu: UP = upload to server (confirmed), SELECT = rename by voice,
  *       DOWN = discard (confirmed); BACK closes the menu.
  * Confirm modes: SELECT commits (upload / discard), UP or BACK cancels. */
 static void prv_apply_mode(void) {
   if (s_bar) {
-    if (s_menu == 0)      hintbar_set_icons(s_bar, HB_UP, HB_MENU, HB_NONE, HB_DOWN);
+    if (s_menu == 0)      hintbar_set_icons(s_bar,
+                                           s_page > PAGE_ROUTE ? HB_UP : HB_NONE,
+                                           HB_MENU, HB_NONE,
+                                           s_page < PAGE_TRENDS ? HB_DOWN : HB_NONE);
     else if (s_menu == 1) hintbar_set_icons(s_bar, HB_UPLOAD, HB_MIC, HB_NONE, HB_TRASH);
     else if (s_menu <= 3) hintbar_set_icons(s_bar, HB_DECLINE, HB_CONFIRM, HB_NONE, HB_NONE);
     else                  hintbar_set_icons(s_bar, HB_NONE, HB_NONE, HB_NONE, HB_NONE);
   }
   if (s_banner) {
     if (s_menu == 0) {
-      text_layer_set_background_color(s_banner, GColorClear);
-      text_layer_set_text(s_banner, "");
+      prv_set_banner("", GColorClear);
     } else if (s_menu == 1) {
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
-      text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Actions");
+      prv_set_banner("ACTIONS",
+                     PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
     } else if (s_menu == 2) {
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
-      text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Discard activity?");
+      prv_set_banner("DISCARD ACTIVITY?",
+                     PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
     } else if (s_menu == 3) {
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
-      text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, "Upload to server?");
+      prv_set_banner("UPLOAD TO SERVER?",
+                     PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
     } else {
-      text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
-      text_layer_set_text_color(s_banner, GColorWhite);
-      text_layer_set_text(s_banner, s_menu == 4 ? "Discarding..." : "Requesting upload...");
+      prv_set_banner(s_menu == 4 ? "DISCARDING" : "REQUESTING",
+                     PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
     }
   }
 }
 
-static void prv_scroll_by(int dy) {
-  s_off += dy;
-  int min_off = s_scr_h - s_content_h;
-  if (min_off > 0) min_off = 0;
-  if (s_off > 0) s_off = 0;
-  if (s_off < min_off) s_off = min_off;
-  scroll_layer_set_content_offset(s_scroll, GPoint(0, s_off), true);
+static void prv_change_page(int delta) {
+  int next = s_page + delta;
+  if (next < PAGE_ROUTE) next = PAGE_ROUTE;
+  if (next > PAGE_TRENDS) next = PAGE_TRENDS;
+  if (next == s_page) return;
+  s_page = next;
+  if (s_page_layer) layer_mark_dirty(s_page_layer);
+  prv_apply_mode();
 }
 
 static void prv_up_click(ClickRecognizerRef rec, void *ctx) {
   (void)rec; (void)ctx;
-  if (s_menu == 0)      prv_scroll_by(+(s_scr_h * 8 / 10));
+  if (s_menu == 0)      prv_change_page(-1);
   else if (s_menu == 1) { s_menu = 3; prv_apply_mode(); }       // Upload -> confirm
   else if (s_menu <= 3) { s_menu = 1; prv_apply_mode(); }       // confirm -> cancel (keep)
 }
 
 static void prv_down_click(ClickRecognizerRef rec, void *ctx) {
   (void)rec; (void)ctx;
-  if (s_menu == 0)      prv_scroll_by(-(s_scr_h * 8 / 10));
+  if (s_menu == 0)      prv_change_page(+1);
   else if (s_menu == 1) { s_menu = 2; prv_apply_mode(); }       // Discard -> confirm
   /* confirm modes: DOWN is intentionally inert */
 }
@@ -459,6 +602,11 @@ void summary_set_upload(int state, int err) {
   s_upload_state = state;
   s_upload_err = err;
   prv_show_upload();
+  if (!prv_visible() || !s_banner || s_menu != 0) return;
+  prv_set_banner(s_upload_buf,
+      (state == 1) ? PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack) :
+      (state == 2 || state == 3) ? PBL_IF_COLOR_ELSE(GColorRed, GColorBlack) :
+                                  PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack));
 }
 
 void summary_action_result(int cmd, bool ok) {
@@ -474,30 +622,18 @@ void summary_action_result(int cmd, bool ok) {
   if (!prv_visible()) return;
   s_menu = 0;
   prv_apply_mode();
-  if (!s_banner) return;
-  text_layer_set_text_color(s_banner, GColorWhite);
   if (ok) {
-    text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
-    text_layer_set_text(s_banner, cmd == CMD_RENAME ? "Renamed" :
-                                  cmd == CMD_UPLOAD ? "Upload requested" : "Done");
+    prv_set_banner(cmd == CMD_RENAME ? "RENAMED" :
+                   cmd == CMD_UPLOAD ? "UPLOAD REQUESTED" : "DONE",
+                   PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
   } else {
-    text_layer_set_background_color(s_banner, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
-    text_layer_set_text(s_banner, cmd == CMD_RENAME ? "Rename failed" :
-                                  cmd == CMD_UPLOAD ? "Upload unavailable" : "Discard failed");
+    prv_set_banner(cmd == CMD_RENAME ? "RENAME FAILED" :
+                   cmd == CMD_UPLOAD ? "UPLOAD UNAVAILABLE" : "DISCARD FAILED",
+                   PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
   }
 }
 
 /* ---------------- window plumbing ---------------- */
-static TextLayer *prv_text(GRect r, const char *font, GTextAlignment align, GColor color) {
-  TextLayer *tl = text_layer_create(r);
-  text_layer_set_background_color(tl, GColorClear);
-  text_layer_set_text_color(tl, color);
-  text_layer_set_font(tl, fonts_get_system_font(font));
-  text_layer_set_text_alignment(tl, align);
-  scroll_layer_add_child(s_scroll, text_layer_get_layer(tl));
-  return tl;
-}
-
 static void prv_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect b = layer_get_bounds(root);
@@ -505,61 +641,23 @@ static void prv_load(Window *window) {
   s_big = (W >= 180);
   const int ab_w = hintbar_width(W);
   const int CW = W - ab_w;
-  s_scr_h = b.size.h;
-  const int track_h  = s_big ? 112 : 88;
-  const int graph_h  = s_big ? 64 : 56;     // per graph, incl. caption
-  const int stats_h  = (s_big ? 42 : 37) * (g_stats.act == MODE_RUN ? 4 : 3);  // +1 row for VO2max on runs
 
-  s_menu = 0; s_off = 0;
-  s_loaded_act = g_stats.act;
+  s_menu = 0;
   window_set_background_color(window, GColorWhite);
 
-  s_scroll = scroll_layer_create(b);
-  layer_add_child(root, scroll_layer_get_layer(s_scroll));
+  s_page_layer = layer_create(GRect(0, 0, CW, b.size.h));
+  layer_set_update_proc(s_page_layer, prv_page_update);
+  layer_add_child(root, s_page_layer);
 
-  int y = 2;
-  s_title = prv_text(GRect(10, y, CW - 20, 20), FONT_KEY_GOTHIC_18_BOLD,
-                     GTextAlignmentLeft, PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack));
-  y += 22;
-
-  s_dist = prv_text(GRect(0, y - 4, CW, 40),
-                    FONT_KEY_GOTHIC_28_BOLD, GTextAlignmentCenter, GColorBlack);
-  y += 40;
-
-  s_track_layer = layer_create(GRect(8, y, CW - 16, track_h));
-  layer_set_update_proc(s_track_layer, prv_track_update);
-  scroll_layer_add_child(s_scroll, s_track_layer);
-  y += track_h + 8;
-
-  s_graphs_layer = layer_create(GRect(10, y, CW - 20, graph_h * 2));
-  layer_set_update_proc(s_graphs_layer, prv_graphs_update);
-  scroll_layer_add_child(s_scroll, s_graphs_layer);
-  y += graph_h * 2 + 6;
-
-  s_stats_layer = layer_create(GRect(0, y, CW, stats_h));
-  layer_set_update_proc(s_stats_layer, prv_stats_update);
-  scroll_layer_add_child(s_scroll, s_stats_layer);
-  y += stats_h + 2;
-
-  s_upload = prv_text(GRect(0, y, CW, 22), FONT_KEY_GOTHIC_14_BOLD,
-                      GTextAlignmentCenter, prv_muted());
-  y += 22;
-
-  s_hint = prv_text(GRect(0, y, CW, 20), FONT_KEY_GOTHIC_14,
-                    GTextAlignmentCenter, prv_muted());
-  text_layer_set_text(s_hint, "SELECT: actions");
-  y += 24;
-
-  s_content_h = y + 4;
-  scroll_layer_set_content_size(s_scroll, GSize(CW, s_content_h));
-
-  // fixed chrome drawn over the scrolling content
+  // Fixed chrome: pages redraw only inside CW; the button guide never moves.
   s_bar = hintbar_create(GRect(CW, 0, ab_w, b.size.h));
   layer_add_child(root, s_bar);
 
   s_banner = text_layer_create(GRect(0, 0, CW, 26));
+  s_banner_fitted_font = NULL;
   text_layer_set_font(s_banner, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_text_alignment(s_banner, GTextAlignmentCenter);
+  text_layer_set_overflow_mode(s_banner, GTextOverflowModeFill);
   layer_add_child(root, text_layer_get_layer(s_banner));
 
   window_set_click_config_provider(window, prv_summary_clicks);
@@ -581,14 +679,7 @@ static void prv_unload(Window *window) {
 #endif
   hintbar_destroy(s_bar); s_bar = NULL;
   text_layer_destroy(s_banner);      s_banner = NULL;
-  text_layer_destroy(s_hint);        s_hint = NULL;
-  text_layer_destroy(s_title);       s_title = NULL;
-  text_layer_destroy(s_dist);        s_dist = NULL;
-  text_layer_destroy(s_upload);      s_upload = NULL;
-  layer_destroy(s_track_layer);      s_track_layer = NULL;
-  layer_destroy(s_graphs_layer);     s_graphs_layer = NULL;
-  layer_destroy(s_stats_layer);      s_stats_layer = NULL;
-  scroll_layer_destroy(s_scroll);    s_scroll = NULL;
+  layer_destroy(s_page_layer);       s_page_layer = NULL;
 }
 
 /* A newly saved activity gets a clean debrief: no stale upload result, and the
@@ -598,7 +689,7 @@ void summary_reset_for_new_run(void) {
   s_upload_err = 0;
   s_dismissed = false;
   s_menu = 0;
-  s_off = 0;
+  s_page = PAGE_ROUTE;
 }
 
 void summary_window_push(void) {
@@ -610,16 +701,9 @@ void summary_window_push(void) {
     });
   }
   if (window_stack_contains_window(s_win)) {
-    if (s_loaded_act != g_stats.act) {
-      // Run uses an extra VO2 row and Ride changes several labels. A MODE packet
-      // normally precedes the first load, but a recovered/late summary must also
-      // rebuild the geometry rather than squeeze four rows into a three-row frame.
-      window_stack_remove(s_win, false);
-      window_stack_push(s_win, false);
-      return;
-    }
-    prv_fill_texts();                                  // refresh in place
-    if (s_track_layer) layer_mark_dirty(s_track_layer);
+    // Every page owns the same fixed frame, so late activity/track/graph fields
+    // can refresh in place without tearing down the window or moving the user.
+    prv_fill_texts();
     return;
   }
   if (s_dismissed) return;   // late route/graph data must not resurrect it

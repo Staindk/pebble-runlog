@@ -4,6 +4,62 @@ All notable changes to RunLog. Dates are approximate. Versions that change the
 **watch binary** are marked — those require re-flashing the watch, not just
 reloading the phone bundle.
 
+## 2.1.0 — calmer HR display and phone-first settings (complete PBW reinstall)
+
+- Removed every app-controlled backlight colour change. RunLog now leaves the
+  user's system backlight colour alone on Emery as well as older watches.
+- Replaced the detached, full-width HR-zone badge with a small `Z1`–`Z5` text
+  marker inside the HR tile's own caption row. The BPM stays solid black, the
+  explicit zone remains legible on monochrome hardware, and the marker can be
+  hidden from the phone page.
+- Refined the live recorder without changing its familiar anatomy: boxed tiles
+  became thin rules and whitespace, metric captions use compact Pebble system
+  type, and the timer status now names **LIVE / LAP / TOTALS** with a `1/3`
+  position and restrained segment marker. The marker appears only while those
+  pages are navigable; pause state stays unmistakable, and no sensor, GPS,
+  journal or radio cadence changes when a page changes.
+- Rebuilt the on-watch debrief as three fixed Pebble-style pages instead of one
+  long scrolling canvas: **Route** opens first, followed by **Stats** and
+  **Trends**. UP/DOWN advances exactly one screen, the unavailable direction is
+  removed from the button bar at each end, and SELECT keeps the protected
+  Upload/Rename/Discard actions. A `1/3` position marker makes navigation clear.
+- Route-less saves now say **NO GPS ROUTE — Time & sensors saved** on the watch.
+  Routed workouts retain a distinct arrival state while their compact route is
+  streaming from the phone, rather than leaving both cases on the same endless
+  “waiting for phone” message.
+- Removed truncating and trailing-ellipsis UI on both sides. Watch values and
+  captions select the largest complete one-line font that fits, compact labels
+  replace broken word fragments on Basalt, and long phone activity names wrap.
+  The normal debrief no longer repeats an `ON PHONE` footer beneath a green
+  SAVED header; upload state appears only when it adds information.
+- Corrected the GPS Kalman setup: W3C's 95%-confidence accuracy radius is now
+  converted to per-axis measurement variance, acceleration noise is tuned per
+  activity, velocity is estimated instead of seeded from one noisy interval,
+  duplicate/reordered timestamps are ignored, and long outages re-anchor the
+  state. New regressions cover timestamp spikes, sharp turns, accuracy weighting
+  and stale-velocity projection.
+- Moved units, auto-pause, split alerts, maximum HR and resting HR into a new
+  **Watch & Workout** card on the mobile RunLog page, alongside the existing
+  workout targets. The watch menu is now only Activity and Phone settings;
+  activity selection remains fully local and available offline.
+- Phone-managed settings are sent in one protected packet only when changed.
+  A disconnected edit carries a durable pending marker, ignores stale watch
+  snapshots, retries on reconciliation and clears only after the watch echoes
+  the complete applied values. Watch flash writes still occur only on change.
+- Watch controls are locked on the page during a live workout, and the watch
+  also refuses a settings packet while active, so units or auto-pause cannot
+  unexpectedly change halfway through an activity. Targets remain live-editable.
+- Added `CFGSET` and `HRZONE` as appended message keys without renumbering the
+  established protocol. Existing settings migrate with the zone marker on.
+- The host suite now covers 34 end-to-end scenarios, including stale reconnect
+  and settings-ack behaviour. A native screenshot suite resets a disposable
+  emulator, injects deterministic long-distance live/debrief fixtures, and
+  captures ten distinct Ready/Settings/workout/debrief screens on both Emery
+  and Basalt using the SDK's headless VNC backend, so automated runs never
+  steal desktop focus.
+  Native SDK 4.17 builds pass for Emery, Diorite and Basalt; source policy also
+  prevents a scroll-layer or ellipsis regression.
+
 ## 2.0.0 — workout-first controls, resilient recording, current SDK (complete PBW reinstall)
 
 RunLog 2 is a native Basalt/Diorite/Emery release built and verified with the

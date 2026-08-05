@@ -63,6 +63,7 @@ Settings g_set = {
   .miles = false,
   .autopause = true,
   .splits = true,
+  .show_hr_zone = true,
   .max_hr = 190,
   .rest_hr = 0,
   .mode = MODE_RUN,
@@ -82,6 +83,7 @@ static TextLayer *s_state_layer, *s_time_layer;
 static TextLayer *s_dist_cap, *s_dist_layer;
 static TextLayer *s_pace_cap, *s_pace_layer;
 static TextLayer *s_hr_cap, *s_hr_layer;
+static TextLayer *s_hr_zone_layer;
 static TextLayer *s_steps_cap, *s_steps_layer;
 static AppTimer *s_flash_timer = NULL;
 static AppTimer *s_send_timer = NULL;
@@ -103,7 +105,6 @@ static time_t s_run_anchor = 0;
 static time_t s_started_at = 0;
 static int s_hr = 0;
 static int s_hr_rendered = -1;
-static int s_hr_zone_rendered = -1;
 static int s_hr_ring[HR_AVG_N];   // recent valid bpm samples for the running mean
 static int s_hr_ring_n = 0, s_hr_ring_i = 0;
 static int s_dist_m = 0;
@@ -181,15 +182,17 @@ static time_t s_target_last_alert = 0;
 static bool s_target_complete_alerted = false;
 
 static char s_time_buf[16], s_dist_buf[12], s_pace_buf[12];
-static char s_hr_buf[12], s_hr_cap_buf[12], s_steps_buf[16];
-static char s_flash_buf[20], s_acc_buf[20];
+static char s_hr_buf[12], s_hr_cap_buf[12], s_hr_zone_buf[4], s_steps_buf[16];
+static char s_flash_buf[20], s_acc_buf[20], s_state_buf[32];
+static char s_cap_buf[4][20];
 static TextLayer *s_acc_layer;
+static GFont s_acc_fitted_font;
 
 // chrome geometry (set during layout)
-static int s_grid_top = 0, s_grid_mid = 0, s_grid_bot = 0, s_col_x = 0;
+static int s_header_bot = 0, s_grid_top = 0, s_grid_mid = 0;
+static int s_grid_bot = 0, s_col_x = 0;
 static Layer *s_actionbar = NULL;
 static int s_content_w = 0;        // usable width left of the action bar
-static GRect s_hr_badge;           // full-width, labelled HR-zone badge
 static TextLayer *s_clock_layer = NULL;   // wall-clock time, top-right
 static char s_clock_buf[12];
 // Metric values normally use the large LECO face. Longer values select the
@@ -200,12 +203,13 @@ static const char *s_metric_preferred_font = FONT_KEY_LECO_28_LIGHT_NUMBERS;
 static GFont s_time_fitted_font = NULL, s_dist_fitted_font = NULL;
 static GFont s_pace_fitted_font = NULL, s_hr_fitted_font = NULL;
 static GFont s_steps_fitted_font = NULL;
+static GFont s_state_fitted_font = NULL, s_cap_fitted_font[4];
+static const char *s_caption_preferred_font = FONT_KEY_GOTHIC_14_BOLD;
 static size_t s_time_fitted_len = 0;
 static void prv_update_actionbar(void);
 static void prv_render_page(void);
 static int prv_elapsed_now(void);
 static void prv_flash(const char *txt);
-static void prv_apply_zone_backlight(int zone);
 
 // Forward declarations for settings helpers
 static void prv_update_caps(void);
@@ -229,11 +233,11 @@ GColor hr_zone_color(int hr) {
 #if defined(PBL_COLOR)
   if (hr <= 0) return GColorDarkGray;
   int mx = g_set.max_hr;
-  if (hr < mx * 60 / 100) return GColorVividCerulean;
-  if (hr < mx * 70 / 100) return GColorIslamicGreen;
-  if (hr < mx * 80 / 100) return GColorChromeYellow;
+  if (hr < mx * 60 / 100) return GColorCobaltBlue;
+  if (hr < mx * 70 / 100) return GColorDarkGreen;
+  if (hr < mx * 80 / 100) return GColorWindsorTan;
   if (hr < mx * 90 / 100) return GColorOrange;
-  return GColorRed;
+  return GColorDarkCandyAppleRed;
 #else
   (void)hr;
   return GColorBlack;
@@ -285,12 +289,87 @@ static GFont prv_fitted_number_font(TextLayer *layer, const char *text,
 static void prv_set_fitted_number(TextLayer *layer, const char *text,
                                   const char *preferred_key, GFont *shown_font) {
   if (!layer) return;
-  GFont font = prv_fitted_number_font(layer, text, preferred_key);
+  bool word = false;
+  for (const char *p = text; *p; p++) {
+    if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
+      word = true;
+      break;
+    }
+  }
+  GFont font;
+  if (word) {
+    static const char *const word_keys[] = {
+      FONT_KEY_GOTHIC_24_BOLD, FONT_KEY_GOTHIC_18_BOLD,
+      FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_09
+    };
+    GRect bounds = layer_get_bounds(text_layer_get_layer(layer));
+    int available = bounds.size.w > 4 ? bounds.size.w - 4 : bounds.size.w;
+    font = fonts_get_system_font(word_keys[ARRAY_LENGTH(word_keys) - 1]);
+    for (size_t i = 0; i < ARRAY_LENGTH(word_keys); i++) {
+      GFont candidate = fonts_get_system_font(word_keys[i]);
+      GSize measured = graphics_text_layout_get_content_size(
+          text, candidate, GRect(0, 0, 1000, 50),
+          GTextOverflowModeFill, GTextAlignmentCenter);
+      if (measured.w <= available) { font = candidate; break; }
+    }
+  } else {
+    font = prv_fitted_number_font(layer, text, preferred_key);
+  }
   if (*shown_font != font) {
     *shown_font = font;
     text_layer_set_font(layer, font);
   }
   text_layer_set_text(layer, text);
+}
+
+static GFont prv_fitted_label_font(TextLayer *layer, const char *text,
+                                   const char *preferred_key) {
+  static const char *const fallback_keys[] = {
+    FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_14_BOLD,
+    FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_09
+  };
+  GRect bounds = layer_get_bounds(text_layer_get_layer(layer));
+  int available = bounds.size.w > 2 ? bounds.size.w - 2 : bounds.size.w;
+  GFont preferred = fonts_get_system_font(preferred_key);
+  GSize measured = graphics_text_layout_get_content_size(
+      text, preferred, GRect(0, 0, 1000, 40),
+      GTextOverflowModeFill, GTextAlignmentLeft);
+  if (measured.w <= available) return preferred;
+  for (size_t i = 0; i < ARRAY_LENGTH(fallback_keys); i++) {
+    GFont font = fonts_get_system_font(fallback_keys[i]);
+    if (font == preferred) continue;
+    measured = graphics_text_layout_get_content_size(
+        text, font, GRect(0, 0, 1000, 40),
+        GTextOverflowModeFill, GTextAlignmentLeft);
+    if (measured.w <= available) return font;
+  }
+  return fonts_get_system_font(FONT_KEY_GOTHIC_09);
+}
+
+static void prv_set_caption(int index, TextLayer *layer, const char *text) {
+  if (!layer || index < 0 || index >= 4) return;
+  if (strcmp(s_cap_buf[index], text) == 0) return;
+  snprintf(s_cap_buf[index], sizeof(s_cap_buf[index]), "%s", text);
+  GFont font = prv_fitted_label_font(layer, s_cap_buf[index],
+                                     s_caption_preferred_font);
+  if (s_cap_fitted_font[index] != font) {
+    s_cap_fitted_font[index] = font;
+    text_layer_set_font(layer, font);
+  }
+  text_layer_set_text(layer, s_cap_buf[index]);
+}
+
+static void prv_set_state_line(const char *text) {
+  if (!s_state_layer || !text) return;
+  if (strcmp(s_state_buf, text) == 0) return;
+  snprintf(s_state_buf, sizeof(s_state_buf), "%s", text);
+  GFont font = prv_fitted_label_font(s_state_layer, s_state_buf,
+                                     FONT_KEY_GOTHIC_14_BOLD);
+  if (s_state_fitted_font != font) {
+    s_state_fitted_font = font;
+    text_layer_set_font(s_state_layer, font);
+  }
+  text_layer_set_text(s_state_layer, s_state_buf);
 }
 
 static int prv_gps_visual_state(bool ok, int acc_m) {
@@ -302,12 +381,26 @@ static void prv_update_acc(void) {
   if (!s_acc_layer) return;
   char next[sizeof(s_acc_buf)];
   if (!s_gps_ok || s_acc_m < 0) {
-    snprintf(next, sizeof(next), "%s GPS--", mode_label());
+    // The coloured/hollow dot already says "GPS". Keep the adjacent text
+    // compact enough for Basalt: activity + exact accuracy, with no truncation
+    snprintf(next, sizeof(next), "%s --", mode_label());
   } else {
-    snprintf(next, sizeof(next), "%s \xc2\xb1%dm", mode_label(), s_acc_m);
+    snprintf(next, sizeof(next), "%s %dm", mode_label(), s_acc_m);
   }
   if (strcmp(next, s_acc_buf) == 0) return;
   snprintf(s_acc_buf, sizeof(s_acc_buf), "%s", next);
+
+  GFont preferred = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+  GRect bounds = layer_get_bounds(text_layer_get_layer(s_acc_layer));
+  GSize measured = graphics_text_layout_get_content_size(
+      s_acc_buf, preferred, GRect(0, 0, 1000, 30),
+      GTextOverflowModeFill, GTextAlignmentLeft);
+  GFont fitted = measured.w <= bounds.size.w ? preferred
+      : fonts_get_system_font(FONT_KEY_GOTHIC_09);
+  if (fitted != s_acc_fitted_font) {
+    s_acc_fitted_font = fitted;
+    text_layer_set_font(s_acc_layer, fitted);
+  }
   text_layer_set_text(s_acc_layer, s_acc_buf);
 }
 
@@ -339,7 +432,6 @@ static void prv_update_pace(void) {
 }
 
 static void prv_update_hr(void) {
-  prv_apply_zone_backlight(prv_hr_zone_index(s_hr));
   prv_render_page();
 }
 
@@ -408,36 +500,27 @@ static void prv_check_target(void) {
   }
 }
 
-// Emery's current RGB backlight can reinforce the zone without turning the
-// light on or keeping it on. Older/colorless targets compile this away. The
-// firmware restores the user's chosen tint when RunLog exits or is pre-empted.
-static void prv_apply_zone_backlight(int zone) {
-#if defined(PBL_RGB_BACKLIGHT)
-  if (s_state == STATE_RUNNING && zone > 0) light_set_color(hr_zone_color(s_hr));
-  else                                      light_set_system_color();
-#else
-  (void)zone;
-#endif
-}
-
 static void prv_render_page(void) {
   if (!s_dist_layer || !s_dist_cap) return;
   char a[16], b[16], c[16], d[16];
+  const char *cap_a, *cap_b, *cap_c, *cap_d;
   GColor cap_col = PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack);
   text_layer_set_text_color(s_dist_cap, cap_col);
   text_layer_set_text_color(s_pace_cap, cap_col);
   text_layer_set_text_color(s_hr_cap, cap_col);
+  text_layer_set_text_color(s_hr_zone_layer, cap_col);
   text_layer_set_text_color(s_steps_cap, cap_col);
+  text_layer_set_text(s_hr_zone_layer, "");
 
   if (s_page == 1) {
     int lap_active = prv_elapsed_now() - s_lap_start_active_s;
     int lap_dist = s_dist_m - s_lap_start_dist_m;
     int lap_pace = (lap_dist >= 10 && lap_active > 0)
                      ? (int)((int64_t)lap_active * 1000 / lap_dist) : 0;
-    text_layer_set_text(s_dist_cap, "LAP");
-    text_layer_set_text(s_pace_cap, g_set.miles ? "LAP MI" : "LAP KM");
-    text_layer_set_text(s_hr_cap, "LAP TIME");
-    text_layer_set_text(s_steps_cap, g_set.mode == MODE_CYCLE ? "LAP SPEED" : "LAP PACE");
+    cap_a = "LAP";
+    cap_b = g_set.miles ? "LAP MI" : "LAP KM";
+    cap_c = "LAP TIME";
+    cap_d = g_set.mode == MODE_CYCLE ? "LAP SPEED" : "LAP PACE";
     snprintf(a, sizeof(a), "%d", s_lap_n);
     fmt_dist(b, sizeof(b), lap_dist);
     fmt_dur(c, sizeof(c), lap_active);
@@ -445,9 +528,9 @@ static void prv_render_page(void) {
     else                          fmt_pace(d, sizeof(d), lap_pace);
   } else if (s_page == 2) {
     int avgp = prv_live_avg_pace();
-    text_layer_set_text(s_dist_cap, g_set.mode == MODE_CYCLE ? "AVG SPEED" : "AVG PACE");
-    text_layer_set_text(s_pace_cap, "AVG HR");
-    text_layer_set_text(s_hr_cap, g_set.miles ? "ASCENT FT" : "ASCENT M");
+    cap_a = g_set.mode == MODE_CYCLE ? "AVG SPEED" : "AVG PACE";
+    cap_b = "AVG HR";
+    cap_c = g_set.miles ? "ASCENT FT" : "ASCENT M";
     if (g_set.mode == MODE_CYCLE) fmt_speed(a, sizeof(a), avgp);
     else                          fmt_pace(a, sizeof(a), avgp);
     if (s_avg_hr_live > 0) snprintf(b, sizeof(b), "%d", s_avg_hr_live);
@@ -455,64 +538,81 @@ static void prv_render_page(void) {
     snprintf(c, sizeof(c), "%d", egain_display(s_egain_live_m));
     if (g_set.target_type == TARGET_DURATION) {
       int left = g_set.target_value - prv_elapsed_now();
-      text_layer_set_text(s_steps_cap, "TARGET TIME");
+      cap_d = "TIME LEFT";
       if (left > 0) fmt_dur(d, sizeof(d), left); else snprintf(d, sizeof(d), "DONE");
     } else if (g_set.target_type == TARGET_DISTANCE) {
       int left = g_set.target_value - s_dist_m;
-      text_layer_set_text(s_steps_cap, "TARGET DIST");
+      cap_d = "DIST LEFT";
       if (left > 0) fmt_dist(d, sizeof(d), left); else snprintf(d, sizeof(d), "DONE");
     } else if (g_set.target_type == TARGET_HR_ZONE) {
       int z = prv_hr_zone_index(s_hr);
-      text_layer_set_text(s_steps_cap, "TARGET HR");
+      cap_d = "HR TARGET";
       if (!z) snprintf(d, sizeof(d), "Z%d --", g_set.target_value);
       else if (z == g_set.target_value) snprintf(d, sizeof(d), "Z%d OK", z);
       else snprintf(d, sizeof(d), "Z%d %s", z, z > g_set.target_value ? "HIGH" : "LOW");
     } else if (g_set.target_type == TARGET_PACE) {
-      text_layer_set_text(s_steps_cap, g_set.mode == MODE_CYCLE ? "TARGET SPEED" : "TARGET PACE");
+      cap_d = g_set.mode == MODE_CYCLE ? "SPEED GOAL" : "PACE GOAL";
       if (!s_pace_s) snprintf(d, sizeof(d), "--");
       else if (g_set.target_lo > 0 && s_pace_s < g_set.target_lo) snprintf(d, sizeof(d), "FAST");
       else if (g_set.target_hi > 0 && s_pace_s > g_set.target_hi) snprintf(d, sizeof(d), "SLOW");
       else snprintf(d, sizeof(d), "OK");
     } else {
-      text_layer_set_text(s_steps_cap, "MOVING");
+      cap_d = "MOVING";
       fmt_dur(d, sizeof(d), s_moving_live_s > 0 ? s_moving_live_s : prv_elapsed_now());
     }
   } else {
-    text_layer_set_text(s_dist_cap, g_set.miles ? "DIST MI" : "DIST KM");
-    text_layer_set_text(s_pace_cap, g_set.mode == MODE_CYCLE
-                                      ? (g_set.miles ? "MPH" : "KM/H")
-                                      : (g_set.miles ? "PACE/MI" : "PACE/KM"));
+    cap_a = g_set.miles ? "DIST MI" : "DIST KM";
+    cap_b = g_set.mode == MODE_CYCLE
+              ? (g_set.miles ? "MPH" : "KM/H")
+              : (g_set.miles ? "PACE/MI" : "PACE/KM");
     int zone = prv_hr_zone_index(s_hr);
+    bool zone_visible = g_set.show_hr_zone && zone > 0;
 #if defined(PBL_HEALTH)
-    if (s_hr_access_mask & HealthServiceAccessibilityMaskNoPermission)
+    if (s_hr_access_mask & HealthServiceAccessibilityMaskNoPermission) {
       snprintf(s_hr_cap_buf, sizeof(s_hr_cap_buf), "HR OFF");
-    else if (s_hr_access_mask & HealthServiceAccessibilityMaskNotSupported)
+      zone_visible = false;
+    } else if (s_hr_access_mask & HealthServiceAccessibilityMaskNotSupported) {
       snprintf(s_hr_cap_buf, sizeof(s_hr_cap_buf), "HR N/A");
-    else
+      zone_visible = false;
+    } else
 #endif
-      snprintf(s_hr_cap_buf, sizeof(s_hr_cap_buf), zone > 0 ? "HR  Z%d" : "HR  Z-", zone);
-    text_layer_set_text(s_hr_cap, s_hr_cap_buf);
-    text_layer_set_text_color(s_hr_cap,
-        zone > 0 ? PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite) : cap_col);
-    text_layer_set_text(s_steps_cap, g_set.mode == MODE_CYCLE
-                                       ? (g_set.miles ? "ASCENT FT" : "ASCENT M")
-                                       : "STEPS");
+      snprintf(s_hr_cap_buf, sizeof(s_hr_cap_buf), "HR");
+    cap_c = s_hr_cap_buf;
+    if (zone_visible) {
+      snprintf(s_hr_zone_buf, sizeof(s_hr_zone_buf), "Z%d", zone);
+      text_layer_set_text(s_hr_zone_layer, s_hr_zone_buf);
+      text_layer_set_text_color(s_hr_zone_layer,
+                                PBL_IF_COLOR_ELSE(hr_zone_color(s_hr), GColorBlack));
+    }
+    cap_d = g_set.mode == MODE_CYCLE
+              ? (g_set.miles ? "ASCENT FT" : "ASCENT M") : "STEPS";
     fmt_dist(a, sizeof(a), s_dist_m);
     if (g_set.mode == MODE_CYCLE) fmt_speed(b, sizeof(b), s_pace_s);
     else                          fmt_pace(b, sizeof(b), s_pace_s);
     if (s_hr > 0) snprintf(c, sizeof(c), "%d", s_hr); else snprintf(c, sizeof(c), "--");
     if (g_set.mode == MODE_CYCLE) snprintf(d, sizeof(d), "%d", egain_display(s_egain_live_m));
     else snprintf(d, sizeof(d), "%d", s_steps);
-    if (zone != s_hr_zone_rendered) {
-      s_hr_zone_rendered = zone;
-      prv_apply_zone_backlight(zone);
-      if (s_chrome_layer) layer_mark_dirty(s_chrome_layer);
-    }
   }
-  if (s_page != 0 && s_hr_zone_rendered != 0) {
-    s_hr_zone_rendered = 0;
-    if (s_chrome_layer) layer_mark_dirty(s_chrome_layer);
-  }
+
+  prv_set_caption(0, s_dist_cap, cap_a);
+  prv_set_caption(1, s_pace_cap, cap_b);
+  prv_set_caption(2, s_hr_cap, cap_c);
+  prv_set_caption(3, s_steps_cap, cap_d);
+
+  // One page-specific value gets the same restrained orange accent as the
+  // debrief. HR remains black; its tiny Z label alone carries zone colour.
+  GColor accent = PBL_IF_COLOR_ELSE(GColorOrange, GColorBlack);
+  text_layer_set_text_color(s_dist_layer,
+      (s_state == STATE_RUNNING || s_state == STATE_PAUSED) && s_page == 2
+          ? accent : GColorBlack);
+  text_layer_set_text_color(s_pace_layer,
+      (s_state == STATE_RUNNING || s_state == STATE_PAUSED) && s_page == 0
+          ? accent : GColorBlack);
+  text_layer_set_text_color(s_hr_layer, GColorBlack);
+  text_layer_set_text_color(s_steps_layer,
+      (s_state == STATE_RUNNING || s_state == STATE_PAUSED) && s_page == 1
+          ? accent : GColorBlack);
+
   prv_metric_text(s_dist_layer, s_dist_buf, sizeof(s_dist_buf), a, &s_dist_fitted_font);
   prv_metric_text(s_pace_layer, s_pace_buf, sizeof(s_pace_buf), b, &s_pace_fitted_font);
   prv_metric_text(s_hr_layer, s_hr_buf, sizeof(s_hr_buf), c, &s_hr_fitted_font);
@@ -522,34 +622,43 @@ static void prv_render_page(void) {
 
 static void prv_set_state_text(void) {
   // The big timer carries run state by COLOUR: black = recording, red =
-  // paused, grey = idle/saving. The small line under it only shows extra
-  // context (auto-pause / saving / transient flashes).
+  // paused, grey = idle/saving. The compact line under it names the current
+  // Pebble-style page unless a more important state needs the space.
   GColor timer_col = PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack);  // idle
-  const char *status = "";
+  GColor status_col = PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack);
+  char status[32];
+  const char *page_name = s_page == 1 ? "LAP" : s_page == 2 ? "TOTALS" : "LIVE";
   switch (s_state) {
     case STATE_RUNNING: timer_col = GColorBlack;
-                        if (!s_phone_connected) status = "PHONE OFFLINE";
+                        if (!s_phone_connected) snprintf(status, sizeof(status), "PHONE OFFLINE");
+                        else snprintf(status, sizeof(status), "%s %d/3", page_name, s_page + 1);
                         break;
     case STATE_PAUSED:  timer_col = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
-                        status = s_autopaused ? "AUTO-PAUSE" : "PAUSED"; break;
-    case STATE_SAVING:  status = "SAVING..."; break;
-    default: if (!s_phone_connected) status = "PHONE OFFLINE"; break;
+                        status_col = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
+                        snprintf(status, sizeof(status), "%s %d/3",
+                                 s_autopaused ? "AUTO-PAUSE" : "PAUSED", s_page + 1);
+                        break;
+    case STATE_SAVING:  snprintf(status, sizeof(status), "SAVING"); break;
+    case STATE_DONE:    snprintf(status, sizeof(status), "SAVED"); break;
+    case STATE_READY:
+    default:            snprintf(status, sizeof(status), "%s",
+                                 s_phone_connected ? "READY" : "PHONE OFFLINE"); break;
   }
   // START/PAUSE/RESUME take effect locally and are reconciled later. Do not
-  // mask the true workout state with an indefinite "PAUSING..." label merely
+  // mask the true workout state with an indefinite PAUSING label merely
   // because the phone is offline. STOP is different: saving completes only
   // after the phone durably stores the workout.
-  if (s_pending_cmd == CMD_STOP) status = "SAVING...";
+  if (s_pending_cmd == CMD_STOP) snprintf(status, sizeof(status), "SAVING");
   if (s_time_layer)  text_layer_set_text_color(s_time_layer, timer_col);
   if (s_state_layer) {
-    text_layer_set_text_color(s_state_layer, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
-    text_layer_set_text(s_state_layer, status);
+    text_layer_set_text_color(s_state_layer, status_col);
+    prv_set_state_line(status);
   }
+  if (s_chrome_layer) layer_mark_dirty(s_chrome_layer);
   prv_update_caps();
   prv_update_actionbar();
   prv_apply_tick();          // match tick rate to run state (battery)
   prv_apply_hr_period();      // match optical-sensor duty cycle to state/activity
-  if (s_state != STATE_RUNNING) prv_apply_zone_backlight(0);
 }
 
 // right-edge labels: what UP / SELECT / DOWN do in the current state
@@ -589,7 +698,7 @@ static void prv_flash_done(void *data) {
 }
 
 static void prv_flash(const char *txt) {
-  text_layer_set_text(s_state_layer, txt);
+  prv_set_state_line(txt);
   if (s_flash_timer) {
     app_timer_reschedule(s_flash_timer, 1600);
   } else {
@@ -1080,6 +1189,7 @@ static void prv_write_session(DictionaryIterator *out) {
   prv_dw_u8(out, MESSAGE_KEY_MODE,   (uint8_t)g_set.mode);
   prv_dw_u8(out, MESSAGE_KEY_MHR,    (uint8_t)g_set.max_hr);
   prv_dw_u8(out, MESSAGE_KEY_RHR,    (uint8_t)g_set.rest_hr);
+  prv_dw_u8(out, MESSAGE_KEY_HRZONE, (uint8_t)(g_set.show_hr_zone ? 1 : 0));
   prv_dw_u8(out, MESSAGE_KEY_TGTYPE, (uint8_t)g_set.target_type);
   prv_dw_i32(out, MESSAGE_KEY_TGLO, g_set.target_lo);
   prv_dw_i32(out, MESSAGE_KEY_TGHI, g_set.target_hi);
@@ -1126,7 +1236,7 @@ static void prv_try_send(void) {
   }
   if (s_dict_full) {
     // Only a voice name can realistically overflow the buffer. Drop that command
-    // and tell the user, rather than sitting on "Renaming..." forever or sending
+    // and tell the user, rather than sitting on RENAMING forever or sending
     // a partial dict the phone would misread.
     APP_LOG(APP_LOG_LEVEL_ERROR, "outbox too small for cmd %d; dropping", (int)cmd);
     s_outbox_kind = 0;
@@ -1323,6 +1433,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   bool no_save = (dict_find(iter, MESSAGE_KEY_NOSAVE) != NULL);
   bool stats_changed = false;
   bool track_changed = false;
+  bool config_packet = dict_find(iter, MESSAGE_KEY_CFGSET) != NULL;
   int acked_cmd = 0;
   bool acked_ok = true;
   Tuple *t_sid = dict_find(iter, MESSAGE_KEY_SID);
@@ -1431,9 +1542,47 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     prv_session_persist();
   }
 
+  // 2.1 phone-first settings. Activity stays local to the watch, but the
+  // less time-critical controls now arrive together from the mobile page.
+  // Never change them underneath an active workout; a pending phone update is
+  // retried on the next READY handshake instead.
+  if (config_packet && (s_state == STATE_READY || s_state == STATE_DONE)) {
+    bool changed = false;
+    if ((t = dict_find(iter, MESSAGE_KEY_UNITS))) {
+      bool v = t->value->int32 != 0;
+      if (v != g_set.miles) { g_set.miles = v; changed = true; }
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_AUTOP))) {
+      bool v = t->value->int32 != 0;
+      if (v != g_set.autopause) { g_set.autopause = v; changed = true; }
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_SPLITP))) {
+      bool v = t->value->int32 != 0;
+      if (v != g_set.splits) { g_set.splits = v; changed = true; }
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_MHR))) {
+      int v = (int)t->value->int32;
+      if (v >= 80 && v <= 220 && v != g_set.max_hr) {
+        g_set.max_hr = v; changed = true;
+      }
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_RHR))) {
+      int v = (int)t->value->int32;
+      if (v >= 0 && v <= 120 && v != g_set.rest_hr) {
+        g_set.rest_hr = v; changed = true;
+      }
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_HRZONE))) {
+      bool v = t->value->int32 != 0;
+      if (v != g_set.show_hr_zone) { g_set.show_hr_zone = v; changed = true; }
+    }
+    if (changed) settings_save_and_sync();
+    else         prv_send_hello();  // acknowledge an already-applied retry
+  }
+
   if (no_save) {
     // The phone had nothing to store (no usable GPS, or storage was full). Reset
-    // to a clean READY screen and say NOT SAVED — don't hang on "SAVING..." and
+    // to a clean READY screen and say NOT SAVED — don't hang on SAVING and
     // don't leave the attempted run's numbers on screen.
     s_state = STATE_READY;
     prv_session_clear();
@@ -1467,6 +1616,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     g_stats.max_hr = 0;
     g_stats.vo2 = 0;
     g_stats.egain_m = 0;
+    g_stats.route = -1;
     g_stats.trk_n = 0;
     g_stats.trk_span_m = 0;
     g_stats.pace_n = 0;
@@ -1474,7 +1624,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     prv_session_persist();
   }
 
-  if ((t = dict_find(iter, MESSAGE_KEY_MODE))) {
+  if (!config_packet && (t = dict_find(iter, MESSAGE_KEY_MODE))) {
     // The activity this run was RECORDED as. Deliberately does NOT touch
     // g_set.mode: DOWN can cycle the live setting while a debrief is still open,
     // and the debrief must keep describing the run it belongs to.
@@ -1601,6 +1751,10 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     g_stats.trk_span_m = (int)t->value->int32;
     track_changed = true;
   }
+  if ((t = dict_find(iter, MESSAGE_KEY_ROUTE))) {
+    g_stats.route = t->value->int32 ? 1 : 0;
+    track_changed = true;
+  }
   if ((t = dict_find(iter, MESSAGE_KEY_TRACK))) {
     // track bytes come as even‑length sequence of x,y pairs in 0..200
     uint8_t *bytes = t->value->data;
@@ -1608,6 +1762,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     size_t n = len / 2;
     if (n > TRACK_MAX_PTS) n = TRACK_MAX_PTS;
     g_stats.trk_n = (int)n;
+    if (n >= 2) g_stats.route = 1;
     for (size_t i = 0; i < n; i++) {
       g_stats.trk[i].x = bytes[2*i];
       g_stats.trk[i].y = bytes[2*i + 1];
@@ -1673,8 +1828,7 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
 static void prv_change_page(int delta) {
   s_page = (s_page + delta + WORKOUT_PAGE_COUNT) % WORKOUT_PAGE_COUNT;
   s_dist_buf[0] = s_pace_buf[0] = s_hr_buf[0] = s_steps_buf[0] = '\0';
-  prv_render_page();
-  prv_update_actionbar();
+  prv_set_state_text();
   vibes_short_pulse();
 }
 
@@ -1803,7 +1957,7 @@ static void prv_down_long(ClickRecognizerRef rec, void *ctx) {
   prv_session_persist();
   s_page = 1;
   s_dist_buf[0] = s_pace_buf[0] = s_hr_buf[0] = s_steps_buf[0] = '\0';
-  prv_render_page();
+  prv_set_state_text();
   prv_send_sample(true);
   snprintf(s_flash_buf, sizeof(s_flash_buf), "LAP %d SAVED", completed);
   prv_flash(s_flash_buf);
@@ -1882,7 +2036,7 @@ static void prv_apply_tick(void) {
   }
 }
 
-// ---------------- Chrome (GPS dot + grid lines) ----------------
+// ---------------- Chrome (GPS, page rule + metric dividers) ----------------
 static void prv_chrome_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
 
@@ -1900,22 +2054,32 @@ static void prv_chrome_update(Layer *layer, GContext *ctx) {
   }
 #endif
 
-  // grid lines (kept left of the action bar)
+  // Crisp one-pixel rules and whitespace are closer to Pebble's own UI than
+  // four boxed tiles. The orange segment mirrors the debrief's page marker.
   int gw = s_content_w > 0 ? s_content_w : b.size.w;
   graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack));
+  graphics_draw_line(ctx, GPoint(8, s_header_bot), GPoint(gw - 8, s_header_bot));
   graphics_draw_line(ctx, GPoint(8, s_grid_top), GPoint(gw - 8, s_grid_top));
   graphics_draw_line(ctx, GPoint(8, s_grid_mid), GPoint(gw - 8, s_grid_mid));
-  graphics_draw_line(ctx, GPoint(s_col_x, s_grid_top + 6), GPoint(s_col_x, s_grid_bot - 6));
+  graphics_draw_line(ctx, GPoint(s_col_x, s_grid_top + 7),
+                          GPoint(s_col_x, s_grid_mid - 7));
+  graphics_draw_line(ctx, GPoint(s_col_x, s_grid_mid + 7),
+                          GPoint(s_col_x, s_grid_bot - 7));
 
-  // A full-width colour badge plus an explicit Z1–Z5 label is far easier to
-  // identify in motion than the old six-pixel bar. The label also makes zones
-  // completely unambiguous on monochrome Pebbles.
-  if (s_page == 0 && s_hr_zone_rendered > 0 && s_hr_badge.size.w > 0) {
-    graphics_context_set_fill_color(ctx, hr_zone_color(s_hr));
-    graphics_fill_rect(ctx, s_hr_badge, 4, GCornersAll);
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
-    graphics_draw_round_rect(ctx, s_hr_badge, 4);
+  // READY has no page navigation: leave its rule quiet. Once a workout is
+  // active, the short segment gives UP/DOWN navigation a visible position.
+  if (s_state == STATE_RUNNING || s_state == STATE_PAUSED) {
+    int marker_w = gw - 16;
+    int gap = 3;
+    int segment_w = (marker_w - gap * (WORKOUT_PAGE_COUNT - 1)) /
+                    WORKOUT_PAGE_COUNT;
+    int marker_x = 8 + s_page * (segment_w + gap);
+    graphics_context_set_fill_color(ctx,
+        PBL_IF_COLOR_ELSE(GColorOrange, GColorBlack));
+    graphics_fill_rect(ctx, GRect(marker_x, s_grid_top - 1, segment_w, 2),
+                       0, GCornerNone);
   }
+
 }
 
 // ---------------- UI construction ----------------
@@ -1926,6 +2090,7 @@ static TextLayer *prv_make_text(Layer *root, GRect frame, const char *font_key,
   text_layer_set_text_color(tl, color);
   text_layer_set_font(tl, fonts_get_system_font(font_key));
   text_layer_set_text_alignment(tl, align);
+  text_layer_set_overflow_mode(tl, GTextOverflowModeFill);
   layer_add_child(root, text_layer_get_layer(tl));
   return tl;
 }
@@ -1936,11 +2101,14 @@ static void prv_window_load(Window *window) {
   const int W = b.size.w, H = b.size.h;
   const bool big = (W >= 180);  // emery vs basalt/diorite
   s_hr_rendered = -1;
-  s_hr_zone_rendered = -1;
   s_steps_rendered = -999999;
   s_dist_buf[0] = s_pace_buf[0] = s_hr_buf[0] = s_steps_buf[0] = s_acc_buf[0] = '\0';
   s_time_fitted_font = s_dist_fitted_font = s_pace_fitted_font = NULL;
   s_hr_fitted_font = s_steps_fitted_font = NULL;
+  s_acc_fitted_font = s_state_fitted_font = NULL;
+  memset(s_cap_fitted_font, 0, sizeof(s_cap_fitted_font));
+  memset(s_cap_buf, 0, sizeof(s_cap_buf));
+  s_state_buf[0] = 0;
   s_time_fitted_len = 0;
 
   window_set_background_color(window, GColorWhite);
@@ -1952,6 +2120,7 @@ static void prv_window_load(Window *window) {
   const int bar_h = 22;
   const int timer_h = big ? 44 : 34;
   const int status_h = 16;
+  s_header_bot = bar_h;
   s_grid_top = bar_h + timer_h + status_h;
   const int row_h = (H - s_grid_top) / 2;
   s_grid_mid = s_grid_top + row_h;
@@ -1966,10 +2135,11 @@ static void prv_window_load(Window *window) {
   // The clock box was 80 px wide but only needs room for "HH:MM"; trimming it and
   // ending the accuracy box exactly where the clock box starts removes the ~30 px
   // frame overlap that let a long accuracy string collide with the time.
-  s_acc_layer = prv_make_text(root, GRect(24, 2, CW - 76, 20),
+  const int clock_x = big ? CW - 52 : CW - 44;
+  s_acc_layer = prv_make_text(root, GRect(24, 2, clock_x - 26, 20),
                               FONT_KEY_GOTHIC_14, GTextAlignmentLeft,
                               PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
-  s_clock_layer = prv_make_text(root, GRect(CW - 52, 2, 44, 20),
+  s_clock_layer = prv_make_text(root, GRect(clock_x, 2, CW - clock_x - 8, 20),
                                 FONT_KEY_GOTHIC_14, GTextAlignmentRight,
                                 PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
   prv_update_clock();
@@ -1982,42 +2152,55 @@ static void prv_window_load(Window *window) {
 
   // small status line under the timer (auto-pause / saving / transient flashes)
   s_state_layer = prv_make_text(root, GRect(0, bar_h + timer_h - 2, CW, status_h),
-                                FONT_KEY_GOTHIC_14, GTextAlignmentCenter,
+                                FONT_KEY_GOTHIC_14_BOLD, GTextAlignmentCenter,
                                 PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
 
-  // metric numbers in the LECO family, to match the timer
-  const char *cap_font = big ? FONT_KEY_GOTHIC_18 : FONT_KEY_GOTHIC_14;
+  // Metric numbers retain the familiar LECO family. Compact bold captions are
+  // left-anchored like Pebble's own cards and fit before they are drawn.
+  const char *cap_font = FONT_KEY_GOTHIC_14_BOLD;
   const char *val_font = big ? FONT_KEY_LECO_32_BOLD_NUMBERS : FONT_KEY_LECO_28_LIGHT_NUMBERS;
   s_time_preferred_font = big ? FONT_KEY_LECO_42_NUMBERS
                               : FONT_KEY_LECO_28_LIGHT_NUMBERS;
   s_metric_preferred_font = val_font;
-  const int cap_h = big ? 20 : 16;
+  s_caption_preferred_font = cap_font;
+  const int cap_h = 17;
   const int val_y = cap_h + 2;
   GColor cap_col = PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack);
   const int cw = CW / 2;
+  const int inset = big ? 10 : 7;
 
   // row 1: distance | pace
-  s_dist_cap   = prv_make_text(root, GRect(0,  s_grid_top + 4, cw, cap_h), cap_font, GTextAlignmentCenter, cap_col);
+  s_dist_cap   = prv_make_text(root, GRect(inset, s_grid_top + 4,
+                                           cw - inset - 3, cap_h),
+                               cap_font, GTextAlignmentLeft, cap_col);
   s_dist_layer = prv_make_text(root, GRect(0,  s_grid_top + val_y, cw, row_h - val_y), val_font, GTextAlignmentCenter, GColorBlack);
-  s_pace_cap   = prv_make_text(root, GRect(cw, s_grid_top + 4, CW - cw, cap_h), cap_font, GTextAlignmentCenter, cap_col);
+  s_pace_cap   = prv_make_text(root, GRect(cw + inset, s_grid_top + 4,
+                                           CW - cw - inset - 3, cap_h),
+                               cap_font, GTextAlignmentLeft, cap_col);
   s_pace_layer = prv_make_text(root, GRect(cw, s_grid_top + val_y, CW - cw, row_h - val_y), val_font, GTextAlignmentCenter, GColorBlack);
 
-  // row 2: heart rate | steps
-  s_hr_cap      = prv_make_text(root, GRect(0,  s_grid_mid + 4, cw, cap_h), cap_font, GTextAlignmentCenter, cap_col);
+  // row 2: heart rate | steps. HR and its optional Z1..Z5 marker share the
+  // caption line as quiet text; there is no detached badge or filled bar.
+  s_hr_cap      = prv_make_text(root, GRect(inset, s_grid_mid + 4,
+                                            cw - inset - 3, cap_h),
+                                cap_font, GTextAlignmentLeft, cap_col);
+  s_hr_zone_layer = prv_make_text(root, GRect(inset, s_grid_mid + 4,
+                                              cw - inset - 3, cap_h),
+                                  cap_font, GTextAlignmentRight, cap_col);
   s_hr_layer    = prv_make_text(root, GRect(0,  s_grid_mid + val_y, cw, row_h - val_y), val_font, GTextAlignmentCenter, GColorBlack);
-  s_steps_cap   = prv_make_text(root, GRect(cw, s_grid_mid + 4, CW - cw, cap_h), cap_font, GTextAlignmentCenter, cap_col);
+  s_steps_cap   = prv_make_text(root, GRect(cw + inset, s_grid_mid + 4,
+                                            CW - cw - inset - 3, cap_h),
+                                cap_font, GTextAlignmentLeft, cap_col);
   s_steps_layer = prv_make_text(root, GRect(cw, s_grid_mid + val_y, CW - cw, row_h - val_y), val_font, GTextAlignmentCenter, GColorBlack);
 
   // Metric values are deliberately single-line. Font fitting above guarantees
   // they fit before this overflow mode ever has anything to trim.
   text_layer_set_overflow_mode(s_time_layer, GTextOverflowModeFill);
+  text_layer_set_overflow_mode(s_acc_layer, GTextOverflowModeFill);
   text_layer_set_overflow_mode(s_dist_layer, GTextOverflowModeFill);
   text_layer_set_overflow_mode(s_pace_layer, GTextOverflowModeFill);
   text_layer_set_overflow_mode(s_hr_layer, GTextOverflowModeFill);
   text_layer_set_overflow_mode(s_steps_layer, GTextOverflowModeFill);
-
-  // The chrome layer sits behind this caption and supplies its zone colour.
-  s_hr_badge = GRect(4, s_grid_mid + 3, cw - 8, cap_h + 1);
 
   text_layer_set_text(s_steps_cap, "STEPS");
   prv_update_caps();   // distance/pace captions (unit- and mode-aware)
@@ -2044,6 +2227,7 @@ static void prv_window_unload(Window *window) {
   text_layer_destroy(s_dist_cap);   text_layer_destroy(s_dist_layer);
   text_layer_destroy(s_pace_cap);   text_layer_destroy(s_pace_layer);
   text_layer_destroy(s_hr_cap);     text_layer_destroy(s_hr_layer);
+  text_layer_destroy(s_hr_zone_layer);
   text_layer_destroy(s_steps_cap);  text_layer_destroy(s_steps_layer);
   hintbar_destroy(s_actionbar); s_actionbar = NULL;
   layer_destroy(s_chrome_layer);
@@ -2125,9 +2309,6 @@ static void prv_deinit(void) {
   if (s_pause_sample_timer) app_timer_cancel(s_pause_sample_timer);
   tick_timer_service_unsubscribe();
   connection_service_unsubscribe();
-#if defined(PBL_RGB_BACKLIGHT)
-  light_set_system_color();
-#endif
   summary_deinit();        // windows are freed here, not from their unload handlers
   settings_deinit();
   window_destroy(s_window);
@@ -2159,6 +2340,8 @@ static void settings_load(void) {
   if (persist_exists(PKEY_MAXHR))   g_set.max_hr    = persist_read_int(PKEY_MAXHR);
   if (persist_exists(PKEY_MODE))    g_set.mode      = persist_read_int(PKEY_MODE);
   if (persist_exists(PKEY_RESTHR))  g_set.rest_hr   = persist_read_int(PKEY_RESTHR);
+  if (persist_exists(PKEY_SHOW_HR_ZONE))
+    g_set.show_hr_zone = persist_read_bool(PKEY_SHOW_HR_ZONE);
   if (persist_exists(PKEY_TARGET_TYPE))  g_set.target_type  = persist_read_int(PKEY_TARGET_TYPE);
   if (persist_exists(PKEY_TARGET_LO))    g_set.target_lo    = persist_read_int(PKEY_TARGET_LO);
   if (persist_exists(PKEY_TARGET_HI))    g_set.target_hi    = persist_read_int(PKEY_TARGET_HI);
@@ -2175,7 +2358,8 @@ static void settings_load(void) {
 }
 
 void settings_save_and_sync(void) {
-  // Avoid six flash writes for every one-item edit.
+  // Write only values that actually changed; phone-side edits should not turn
+  // one Save tap into a block of redundant watch flash writes.
   if (!persist_exists(PKEY_MILES)  || persist_read_bool(PKEY_MILES)  != g_set.miles)
     persist_write_bool(PKEY_MILES, g_set.miles);
   if (!persist_exists(PKEY_AUTOP)  || persist_read_bool(PKEY_AUTOP)  != g_set.autopause)
@@ -2188,6 +2372,9 @@ void settings_save_and_sync(void) {
     persist_write_int(PKEY_MODE, g_set.mode);
   if (!persist_exists(PKEY_RESTHR) || persist_read_int(PKEY_RESTHR)  != g_set.rest_hr)
     persist_write_int(PKEY_RESTHR, g_set.rest_hr);
+  if (!persist_exists(PKEY_SHOW_HR_ZONE) ||
+      persist_read_bool(PKEY_SHOW_HR_ZONE) != g_set.show_hr_zone)
+    persist_write_bool(PKEY_SHOW_HR_ZONE, g_set.show_hr_zone);
   if (!persist_exists(PKEY_TARGET_TYPE) || persist_read_int(PKEY_TARGET_TYPE) != g_set.target_type)
     persist_write_int(PKEY_TARGET_TYPE, g_set.target_type);
   if (!persist_exists(PKEY_TARGET_LO) || persist_read_int(PKEY_TARGET_LO) != g_set.target_lo)

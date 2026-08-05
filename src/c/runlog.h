@@ -33,6 +33,7 @@
 #define PKEY_SESSION_LAPACTIVE 47
 #define PKEY_SESSION_LAPDIST   48
 #define PKEY_SESSION_PAGE      49
+#define PKEY_SHOW_HR_ZONE      50
 
 #define RUNLOG_PROTOCOL_VERSION 3
 
@@ -69,6 +70,7 @@ typedef struct {
   bool miles;       // false = kilometres
   bool autopause;
   bool splits;      // split alerts on/off
+  bool show_hr_zone;// subtle Z1..Z5 label in the HR tile
   int  max_hr;      // zones derived as 60/70/80/90 % of this
   int  rest_hr;     // resting HR for the VO2max reserve model; 0 = off
   int  mode;        // MODE_RUN / MODE_WALK / MODE_CYCLE / MODE_HIKE
@@ -97,6 +99,7 @@ typedef struct {
   int vo2;          // estimated VO2max (ml/kg/min), 0 = n/a; runs only
   int steps;
   int egain_m;
+  int route;         // -1 while phone detail is pending, 0 route-less, 1 routed
   GPoint trk[TRACK_MAX_PTS];  // normalised 0..200, y top-down
   int trk_n;
   int trk_span_m;             // world metres across the longer plot axis

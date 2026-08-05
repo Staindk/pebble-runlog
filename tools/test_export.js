@@ -248,6 +248,11 @@ function lastAction(dom) {
   assert.strictEqual(dom.ids.cfgurlrow.style.display, '', 'url row visible for custom');
   assert.strictEqual(dom.ids.cfgkeyrow.style.display, 'none', 'key row hidden for custom');
   assert.strictEqual(dom.ids.cfgtarget.value, '0', 'workout target defaults off');
+  assert.strictEqual(dom.ids.cfgunits.value, '0', 'watch units prefilled');
+  assert.strictEqual(dom.ids.cfgautop.checked, true, 'auto-pause prefilled');
+  assert.strictEqual(dom.ids.cfgsplits.checked, true, 'split alerts prefilled');
+  assert.strictEqual(dom.ids.cfgzone.checked, true, 'subtle HR-zone label defaults on');
+  assert.strictEqual(Number(dom.ids.cfgmaxhr.value), 190, 'maximum HR prefilled');
   dom.ids.cfgtarget.value = '2'; S.targetUi();
   assert.strictEqual(dom.ids.targettime.style.display, '', 'duration target fields shown');
   assert.strictEqual(dom.ids.targetdist.style.display, 'none', 'unselected target fields hidden');
@@ -447,7 +452,9 @@ function lastAction(dom) {
   S.saveCfg();
   assert.deepStrictEqual(lastAction(dom), {
     act: 'cfg', cfg: {
-      auto: 0, name: 'evening-{activity}', target: { type:3, lo:0, hi:0, value:10000 },
+      auto: 0, name: 'evening-{activity}',
+      watch: {mi:false,ap:true,splits:true,maxHr:190,restHr:0,zone:true},
+      target: { type:3, lo:0, hi:0, value:10000 },
       fmt: 'gpx', preset: 'intervals', url: '',
       auth: '', authSet: false, clearAuth: false,
       key: 'abc123', keySet: true, clearKey: false,

@@ -1,12 +1,15 @@
-/* RunLog — GPS track filter (state-of-the-art for GPS-only input).
+/* RunLog — GPS track filter for phone-only position input.
  *
  * A constant-velocity Kalman filter. Each fix is (lat, lon, accuracy, t):
- *   - measurement noise R comes from the GPS horizontal accuracy (m^2), so
- *     confident fixes pull hard and fuzzy ones barely move the estimate;
+ *   - W3C accuracy is a 95%-confidence radius, converted to a per-axis standard
+ *     deviation before it becomes measurement noise R;
  *   - process noise comes from a plausible human acceleration (m/s^2), so a
  *     constant-velocity stride/pedal is tracked tightly while genuine turns
  *     and pace changes still come through;
- *   - velocity is seeded from the first step so there's no startup lag.
+ *   - velocity is estimated by the filter, bounded to the activity's physically
+ *     plausible speed, rather than copied from one potentially noisy interval;
+ *   - duplicate timestamps are ignored and long gaps re-anchor the state, so
+ *     neither can launch a stale velocity far beyond the measured route.
  * Runs in a local metre plane anchored at the first fix; lat and lon are
  * independent position+velocity filters. This is the right tool when GPS is
  * the only signal (no onboard accel/baro to fuse on this hardware).
@@ -17,12 +20,41 @@
 
 function makeGpsFilter(opts) {
   opts = opts || {};
-  var SIGMA_A = opts.accelStd || 0.7;     // process noise, m/s^2
-  var MIN_ACC = opts.minAccuracy || 3;    // floor on reported accuracy, m
+  var SIGMA_A = opts.accelStd > 0 ? opts.accelStd : 1.0;  // process noise, m/s^2
+  var MIN_SIGMA = opts.minSigma > 0 ? opts.minSigma : 1.5;
+  var MAX_GAP = opts.maxGap > 0 ? opts.maxGap : 30;
+  var MAX_SPEED = opts.maxSpeed > 0 ? opts.maxSpeed : 35;
+  var INIT_SPEED_SIGMA = opts.initialSpeedStd > 0 ? opts.initialSpeedStd : 5;
+  var R95_TO_SIGMA = 1 / 2.44774683068;   // Rayleigh 95th percentile
   var lat0 = 0, lon0 = 0, mLat = 0, mLon = 0;
-  var init = false, haveV = false, lastT = 0;
+  var init = false, lastT = 0;
   var x = [0, 0], y = [0, 0];              // per-axis [position_m, velocity_mps]
   var Px = [[0, 0], [0, 0]], Py = [[0, 0], [0, 0]];
+
+  function measurementVariance(accM) {
+    var radius95 = (typeof accM === 'number' && isFinite(accM) && accM >= 0)
+        ? accM : 30;
+    var sigma = Math.max(MIN_SIGMA, radius95 * R95_TO_SIGMA);
+    return sigma * sigma;
+  }
+
+  function begin(lat, lon, tSec, R) {
+    lat0 = lat; lon0 = lon;
+    mLat = 110540;
+    mLon = Math.max(1, 111320 * Math.cos(lat * Math.PI / 180));
+    x = [0, 0]; y = [0, 0];
+    var v = INIT_SPEED_SIGMA * INIT_SPEED_SIGMA;
+    Px = [[R, 0], [0, v]]; Py = [[R, 0], [0, v]];
+    init = true; lastT = tSec;
+  }
+
+  function output() {
+    return {
+      lat: Math.round((lat0 + y[0] / mLat) * 1e6) / 1e6,
+      lon: Math.round((lon0 + x[0] / mLon) * 1e6) / 1e6,
+      speed: Math.sqrt(x[1] * x[1] + y[1] * y[1])
+    };
+  }
 
   // one axis: constant-velocity predict over dt, then correct toward z (var R)
   function step(s, P, z, dt, R) {
@@ -45,30 +77,34 @@ function makeGpsFilter(opts) {
 
   return {
     update: function (lat, lon, accM, tSec) {
-      var acc = Math.max(MIN_ACC, (accM > 0 ? accM : 30));
-      var R = acc * acc;
+      var R = measurementVariance(accM);
+      var t = (typeof tSec === 'number' && isFinite(tSec))
+          ? tSec : (init ? lastT + 1 : 0);
       if (!init) {
-        lat0 = lat; lon0 = lon;
-        mLat = 110540; mLon = 111320 * Math.cos(lat * Math.PI / 180);
-        x = [0, 0]; y = [0, 0];
-        Px = [[R, 0], [0, 1e4]]; Py = [[R, 0], [0, 1e4]];
-        init = true; haveV = false; lastT = tSec;
+        begin(lat, lon, t, R);
         return { lat: lat, lon: lon, speed: 0 };
       }
-      var dt = tSec - lastT;
-      if (dt <= 0) dt = 0.001;
-      lastT = tSec;
+      var dt = t - lastT;
+      if (!(dt > 0)) return output();       // stale/duplicate fix: never invent velocity
+      if (dt > MAX_GAP) {
+        begin(lat, lon, t, R);              // stale velocity is meaningless after an outage
+        return { lat: lat, lon: lon, speed: 0 };
+      }
+      lastT = t;
       var mx = (lon - lon0) * mLon, my = (lat - lat0) * mLat;
-      if (!haveV) { x[1] = mx / dt; y[1] = my / dt; haveV = true; }  // seed velocity
       var fx = step(x, Px, mx, dt, R);
       var fy = step(y, Py, my, dt, R);
-      return {
-        lat: Math.round((lat0 + fy / mLat) * 1e6) / 1e6,
-        lon: Math.round((lon0 + fx / mLon) * 1e6) / 1e6,
-        speed: Math.sqrt(x[1] * x[1] + y[1] * y[1])
-      };
+      var speed = Math.sqrt(x[1] * x[1] + y[1] * y[1]);
+      if (speed > MAX_SPEED) {
+        var scale = MAX_SPEED / speed;
+        x[1] *= scale; y[1] *= scale;
+      }
+      // Keep the local names in the hot path so minifiers do not retain an
+      // otherwise redundant array lookup solely for output().
+      x[0] = fx; y[0] = fy;
+      return output();
     },
-    reset: function () { init = false; haveV = false; }
+    reset: function () { init = false; }
   };
 }
 
