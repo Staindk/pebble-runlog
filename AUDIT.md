@@ -1,55 +1,84 @@
-# RunLog fresh audit and remediation report
+# RunLog audit and remediation report
 
-Date: 2026-07-27
+Last reviewed: 2026-08-16
 
-Scope: Pebble C watchapp, PebbleKit JS companion, AppMessage protocol, workout
-recovery/storage, GPS and health handling, GPX/TCX/FIT exports, phone
-configuration/debrief page, tests, documentation, privacy, and battery use.
+> The shipping watch runtime is native C and targets only Emery/Pebble Time 2.
+> It is intentionally **not Alloy**: the Alloy port reproduced
+> `fxMapArchive failed in ArchivePebbleResource` on physical PT2 hardware because
+> its installable MOD archive and expanded XS state could not coexist in app RAM.
+> PebbleKit JS remains the phone runtime for GPS, filtering, storage, trim,
+> export, upload and the configuration/debrief page.
 
-The previous contents of `AUDIT.md` were not read or used for this review.
-This document records the fresh audit and the implementation performed from it.
+Current review scope: native watch lifecycle and UI, Health/HR, ticks and timers,
+AppMessage reliability, persistence, PKJS GPS and Hike behavior, recovery and
+storage, trimming, maps, exports, uploads, tests, packaging, documentation,
+privacy, and battery use.
 
 ## Current verdict
 
-The source-level release blockers found in the fresh audit have been remediated.
-RunLog now has an acknowledged, restart-aware workout protocol; hostile log text
-cannot break out of the phone page's inline data; and a long pause or GPS drought
-cannot be treated as an ended workout based only on checkpoint age.
+No unresolved P0 or release-blocking source defect was found. Three concrete
+issues discovered in this pass were remediated:
 
-The implementation also fixes health boundaries, GPS poisoning, stable workout
-actions, secret exposure in page URLs, raw-cadence destruction, elapsed/export
-clock inconsistencies, XHR abort deadlocks, and several misleading UI states.
+- **P1 — stale phone state could replace a newer watch session.** Every
+  session-mutating state/save/no-save/journal-ACK packet is now rejected if its
+  SID is missing or different. An exact ACK for the globally persisted pending
+  sequence remains the narrow exception needed for a successful discard or
+  rejected start. Every PKJS no-save response now carries the affected SID.
+  A real Emery emulator test injects a foreign READY packet into a frozen live
+  session and requires byte-identical state/UI afterward.
+- **P1 — a dictionary overflow could wedge AppMessage.** PebbleOS remains in
+  `OUT_WRITING` after `app_message_outbox_begin()` until the app calls send;
+  simply returning after a failed dictionary write made every later begin fail.
+  Variable-length rename packets are now sized before beginning, all writes stop
+  at the first error, and an unexpected failure sends the valid prefix with a
+  bookkeeping-neutral kind to release the outbox. If that documented path ever
+  fails, comms are disabled instead of entering a battery-draining retry loop.
+- **P2 — Hike journal retries used the normal 30-second deadline.** They now use
+  Hike's selected 60-second journal cadence.
 
-The battery work removes redundant paused ticks, radio packets, redraws,
-whole-route checkpoint rewrites, configuration-only GPS use, string-number
-round trips, repeated settings writes, and all-routes page construction. It does
-so without reducing GPS accuracy/frequency, stored route points, HR sampling,
-step resolution, auto-pause detection, exports, or upload features.
+The Hike power profile was also tightened without weakening route acquisition or
+auto-pause responsiveness. Phone GPS remains high-accuracy at a requested two
+seconds, while watch Health reads, phone-to-watch live snapshots and accuracy
+telemetry use a 30-second low-duty cadence. Optical HR remains 30 seconds,
+unchanged-health keepalives are 60 seconds, and manual pauses still release GPS
+after one minute. Small accuracy-number changes are coalesced; fix-validity
+changes remain immediate.
 
-No open P0 source defect remains from this audit. The largest remaining release
-risk is verification: native state transitions compile on every target, but are
-not executed in an automated Pebble emulator/hardware fault matrix.
+The largest remaining risks are environmental rather than known source defects:
+
+- PebbleKit JS cannot own an Android foreground service, so recording depends on
+  the Pebble app/watchapp lifecycle. Checkpoints and explicit route gaps make an
+  interruption recoverable, not impossible.
+- CI runs the complete host suite but does not yet provision the Pebble SDK for
+  a native build/emulator job. Native verification was run locally for this
+  review.
+- Battery improvements are based on wakeup/radio-path analysis. A repeatable
+  physical PT2 + Android power trace is still needed to quantify percentage
+  savings and decide whether an optional no-HR expedition mode is worthwhile.
 
 ## Final verification
 
 - `bash tools/test.sh`: passed.
   - GPX, TCX, and FIT structure/CRC/session-clock tests passed.
-  - All 23 phone pipeline scenarios passed.
+  - All 39 phone pipeline scenarios passed.
   - All phone-page rendering/action/download tests passed.
-- Generated `src/pkjs/page.js` was rebuilt from the page and shared exporters.
-- `node --check` passed for the JavaScript sources and tools.
+- `node --check` and `bash -n` passed for changed JavaScript and shell sources.
 - `git diff --check`: passed.
-- A clean `pebble build` passed for basalt, diorite, and emery.
-- Final native RAM footprints reported by the SDK:
-  - basalt: 22,780 bytes, 42,756 bytes heap free;
-  - diorite: 22,552 bytes, 42,984 bytes heap free;
-  - emery: 22,780 bytes, 108,292 bytes heap free.
+- SDK 4.33.1 `pebble build`: passed for Emery.
+  - 6,959 bytes of resources.
+  - 48,040-byte fixed RAM footprint; 83,032 bytes of heap available.
+  - PBW contains no XSA/MOD Alloy archive and passes `unzip -t`.
+  - SHA-256: `67116fde4e6a45fb379f37feae077548716fc4765d7a729c094969bb5e12c571`.
+- Emery emulator: six repeated install/relaunch cycles and ten distinct
+  200×228 ready/settings/live/debrief screens passed in the full review.
+  A real VNC screen tap preserved RUNNING, physical SELECT produced PAUSED, and
+  swipe-left resumed it. Accelerometer-triggered refresh is now absent by
+  source policy; stale-session injection also passed.
 
-The SDK linker emits its usual RWX load-segment warning. No emulator interaction,
-real watch/phone transport fault injection, hardware power measurement, or live
-upload-service interoperability test was performed.
+The SDK linker emits its usual RWX load-segment warning. No physical-watch power
+measurement or live upload-service interoperability test was performed.
 
-## Remediation status
+## Earlier remediation status
 
 ### P0-1 — Fire-and-forget workout state
 
@@ -224,8 +253,8 @@ documented. PebbleKit JS offers no secure credential-store API.
 | Audit item | Status | Implementation |
 |---|---|---|
 | B1 no-GPS radio spam | Done | Unavailable status sends only on transition; watchdog repeats deduplicate. |
-| B2 paused one-second ticks | Done | RUNNING uses seconds; PAUSED uses minute ticks plus one five-second AppTimer (`src/c/main.c:983-1001`). |
-| B3 unchanged sensor packets | Done | Send on HR/step change plus a bounded ten-second keepalive; carry source time and always include final samples (`src/c/main.c:576-607`). |
+| B2 paused one-second ticks | Done | RUNNING uses seconds; PAUSED uses minute ticks plus one 60-second health AppTimer. |
+| B3 unchanged sensor packets | Done | Normal mode sends on HR/step change with a 10-second keepalive; Hike samples every 30 seconds with a 60-second keepalive. Source time and final samples are retained. |
 | B4 AppMessage coalescing | Mostly done | Obsolete GPS/live snapshots replace queued ones; TRACK+TSPAN and PACEG+HRG are bundled. GPS status remains separate when it conveys a real transition/accuracy update. |
 | B5 redraw invalidation | Partly done | Identical HR, steps, and hint icons do not redraw. Splitting static grid/GPS/HR into separate native layers is deferred pending on-watch profiling. |
 | B6 checkpoint amplification | Done | 60-point chunk journal plus small metadata/heartbeat; bounded partial-chunk rewrites and one final compaction. |
@@ -235,18 +264,20 @@ documented. PebbleKit JS offers no secure credential-store API.
 | B10 full-page work | Done | Metadata list, one-run detail, joined SVG commands, and visual chart decimation preserve full stored/exported points. |
 | B11 token churn | Done | FitTrackee token invalidates only for destination/credential changes. |
 
-No GPS frequency, GPS precision, stored route, HR sensor period, step sample, or
-auto-pause feature was reduced.
+Hike deliberately requests 2-second rather than 1-second GPS, retains ordinary
+route points at most every 10 seconds, and uses 30-second watch telemetry. It
+keeps high-accuracy acquisition, zero displacement filtering, raw-fix
+auto-pause evidence, route uncertainty filtering, and the full export path.
 
 ## Remaining work, in priority order
 
-### R1 — Native state-machine and transport fault automation (P1 assurance)
+### R1 — Native CI and broader transport fault automation (P2 assurance)
 
-The JS harness now covers protocol sequencing and restart reconciliation, but it
-cannot execute watch C callbacks. Extract state/health accounting into pure C
-and test busy outbox, failed send, delayed/duplicate ACK, watch process death,
-midnight health rollover, and every transition offset. Add emulator smoke tests
-for basalt/diorite/emery.
+The JS harness covers protocol sequencing and restart reconciliation, and the
+Emery emulator now executes repeated relaunch, UI and stale-SID tests. CI still
+does not install SDK 4.33.1. Add a cached Emery build job, then extend native
+fault injection to busy/failed outbox, delayed/duplicate ACK, watch process
+death, midnight Health rollover and every transition offset.
 
 ### R2 — Finished-run A/B generations and recovery UI (P2)
 
@@ -288,9 +319,8 @@ WebViews accept a build-generated script hash so `unsafe-inline` can be removed.
 
 ## Release assessment
 
-The app is materially safer, more recoverable, more privacy-conscious, and more
-battery-efficient than the audited snapshot. The original P0 defects are fixed
-in source and covered by new phone-side fault scenarios. A production release
-should still include emulator/on-device protocol exercises and at least one
-repeatable battery comparison, because compilation and JS simulation cannot
-prove native callback timing or real radio/power behavior.
+The reviewed PBW is release-candidate quality for Emery: the host suite, native
+build, repeated emulator launches, UI matrix and stale-session fault test all
+pass. The remaining release assurance item is a repeatable physical PT2/Android
+battery and interruption run; emulation cannot prove real optical-sensor, radio,
+GNSS or OS-suspension behavior.

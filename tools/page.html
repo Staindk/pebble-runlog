@@ -38,6 +38,9 @@
        background:#1a2128 repeating-linear-gradient(0deg,transparent,transparent 23px,#222b33 24px),
                   repeating-linear-gradient(90deg,transparent,transparent 23px,#222b33 24px);
        touch-action:none;margin-bottom:4px}
+  .maptrim{display:grid;gap:10px;margin-bottom:14px}
+  .maptrim #map,.maptrim #trimwrap{margin-bottom:0}
+  .maptrim.trimming #map{height:270px}
   #tilenote{position:absolute;left:8px;top:8px;z-index:5;font-size:11px;color:#9aa6b1;
        background:rgba(15,20,25,.7);padding:2px 7px;border-radius:5px;display:none}
   .maptip{font-size:11px;color:#7d8a96;margin-left:6px}
@@ -102,9 +105,22 @@
   #dtype button{flex:1;background:#1a2128;color:#7d8a96;border:1px solid #26303a;
             border-radius:8px;padding:8px 0;font-size:13px}
   #dtype button.on{background:#26303a;color:#fff;border-color:#ff5a1f}
+  #trimwrap input[type=range]{width:100%;min-height:36px;margin:1px 0 3px;accent-color:#ff5a1f}
+  #trimwrap label{display:flex;justify-content:space-between;gap:10px}
+  #trimwrap label span{color:#e8edf2;font-variant-numeric:tabular-nums}
+  .trimkey{display:flex;gap:12px;flex-wrap:wrap;margin:2px 0 10px;color:#aeb9c4;font-size:12px}
+  .trimkey i{display:inline-block;width:9px;height:9px;border:2px solid #fff;border-radius:50%;margin-right:5px;vertical-align:-2px}
+  .trimkey .start{background:#27c466}.trimkey .end{background:#ff4d6a}
+  .trimactions{display:flex;gap:8px;margin-top:10px}
+  .trimactions button{flex:1;min-width:110px}
+  #trimbtn:disabled{opacity:.45;cursor:default}
   .foot{margin-top:20px}.foot button{width:100%}
   .nomap{height:100%;display:flex;align-items:center;justify-content:center;
          color:#9aa6b1;text-align:center;padding:0 30px;box-sizing:border-box}
+  @media (min-width:720px){
+    .maptrim.trimming{grid-template-columns:minmax(0,1fr) minmax(280px,.72fr);align-items:start}
+    .maptrim.trimming #map{height:320px}
+  }
 </style>
 </head>
 <body>
@@ -246,15 +262,33 @@
   <button type="button" class="back" onclick="showList()">&#8592; All activities</button>
   <div id="dtitle" class="sub" style="margin:0 0 8px"></div>
 
-  <div id="map">
-    <div id="mapinner"></div>
-    <div id="tilenote">map tiles unavailable &mdash; route on grid</div>
-    <div class="mapbtns" id="mapbtns">
-      <button type="button" aria-label="Zoom map in" title="Zoom in" onclick="zoomBy(1)">+</button>
-      <button type="button" aria-label="Zoom map out" title="Zoom out" onclick="zoomBy(-1)">&#8722;</button>
-      <span class="maptip">pinch or double-tap to zoom</span>
+  <div class="maptrim" id="maptrim">
+    <div id="map">
+      <div id="mapinner"></div>
+      <div id="tilenote">map tiles unavailable &mdash; route on grid</div>
+      <div class="mapbtns" id="mapbtns">
+        <button type="button" aria-label="Zoom map in" title="Zoom in" onclick="zoomBy(1)">+</button>
+        <button type="button" aria-label="Zoom map out" title="Zoom out" onclick="zoomBy(-1)">&#8722;</button>
+        <span class="maptip">pinch or double-tap to zoom</span>
+      </div>
+      <div class="attrib" id="mapattrib">&copy; OpenStreetMap contributors &copy; CARTO &middot; opening an activity fetches map tiles for its area over the network</div>
     </div>
-    <div class="attrib" id="mapattrib">&copy; OpenStreetMap contributors &copy; CARTO &middot; opening an activity fetches map tiles for its area over the network</div>
+
+    <div class="card" id="trimwrap" style="display:none">
+      <h2 style="margin-top:0">TRIM ACTIVITY</h2>
+      <p class="note" style="margin-top:0">Drag either cut point and watch it move on the map. Solid orange stays; dashed grey is removed.</p>
+      <div class="trimkey"><span><i class="start"></i>START</span><span><i class="end"></i>END</span></div>
+      <label for="trimstart">Keep from <span id="trimfrom"></span></label>
+      <input type="range" id="trimstart" min="0" value="0" aria-describedby="trimsummary" oninput="trimUi('start')">
+      <label for="trimend">Keep until <span id="trimto"></span></label>
+      <input type="range" id="trimend" min="1" value="1" aria-describedby="trimsummary" oninput="trimUi('end')">
+      <p class="note" id="trimsummary" aria-live="polite"></p>
+      <div class="trimactions">
+        <button type="button" class="ghost" id="trimreset" onclick="resetTrim()">Reset</button>
+        <button type="button" class="ghost" id="trimbtn" onclick="applyTrim()">Apply trim</button>
+      </div>
+      <p class="note">This permanently edits the phone copy. If it was uploaded already, RunLog will mark it for re-upload.</p>
+    </div>
   </div>
 
   <div class="statgrid" id="dstats"></div>
@@ -567,6 +601,7 @@ function showDetail(i){
   renderAnalysis(r);
   series(r);
   renderSplits(r);
+  setupTrim(r);
   initMap(r);
 }
 function bestSplit(r){
@@ -708,7 +743,9 @@ function renderSplits(r){
 }
 
 /* ---------- map (OSM slippy tiles) ---------- */
-var MZ = 15, MC = null, MDRAG = null, MPINCH = null;
+var MZ = 15, MC = null, MDRAG = null, MPINCH = null, MSVG = null;
+var TRIM_FIRST = 0, TRIM_LAST = -1, TRIM_CUM = [];
+var MOVERLAY_PENDING = false;
 function ll2w(lat, lon, z){            // world pixel coords at zoom z
   var n = 256 * Math.pow(2, z);
   var la = rad(lat);
@@ -893,49 +930,98 @@ function renderMap(){
       inner.appendChild(im);
     }
   }
-  // route overlay
+  renderRouteOverlay();
+}
+
+/* Repaint only the SVG while a trim handle moves. Rebuilding the whole map
+ * here would repeatedly request the same remote tiles during one drag. */
+function scheduleRouteOverlay(){
+  if (MOVERLAY_PENDING) return;
+  if (window.requestAnimationFrame) {
+    MOVERLAY_PENDING = true;
+    window.requestAnimationFrame(function(){
+      MOVERLAY_PENDING = false;
+      renderRouteOverlay();
+    });
+  } else {
+    // The legacy Pebble WebView and the host test shim may not expose rAF.
+    renderRouteOverlay();
+  }
+}
+function renderRouteOverlay(){
+  var r = RUNS[CUR];
+  if (!r || r.route === 0 || !r.pts || !r.pts.length || !MC) return;
+  var el = $('map'), W = el.clientWidth || 320, H = el.clientHeight || 250;
+  var inner = $('mapinner'), c = ll2w(MC.lat, MC.lon, MZ);
+  var ox = c.x - W/2, oy = c.y - H/2;
+  if (MSVG && MSVG.parentNode) MSVG.parentNode.removeChild(MSVG);
+
   var NS = 'http://www.w3.org/2000/svg';
   var svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('id', 'mapsvg');
   svg.setAttribute('width', W); svg.setAttribute('height', H);
-  var cmds = [], started = false, lastPx = null, lastPy = null;
-  // The complete route remains in r.pts for charts and downloads. An SVG path
-  // cannot reveal more detail than the phone's pixels, so cap only its visual
-  // vertices; always retain starts, ends and both sides of pause boundaries.
+  svg.setAttribute('role', 'img');
   var visualStep = Math.max(1, Math.ceil(r.pts.length / 1800));
-  for (var i = 0; i < r.pts.length; i++) {
-    var w = ll2w(r.pts[i][1], r.pts[i][2], MZ);
-    var px = (w.x - ox).toFixed(1), py = (w.y - oy).toFixed(1);
-    var required = i === 0 || i === r.pts.length - 1 || r.pts[i][5] ||
-                   (i + 1 < r.pts.length && r.pts[i + 1][5]);
-    var moved = lastPx === null || Math.abs(Number(px) - lastPx) >= 0.7 ||
-                Math.abs(Number(py) - lastPy) >= 0.7;
-    if (!required && (i % visualStep !== 0 || !moved)) continue;
-    cmds.push((started && !r.pts[i][5] ? 'L' : 'M') + px + ' ' + py);
-    lastPx = Number(px); lastPy = Number(py);
-    started = true;
+  function commands(from, to){
+    var cmds = [], started = false, lastPx = null, lastPy = null;
+    for (var i = from; i <= to; i++) {
+      var w = ll2w(r.pts[i][1], r.pts[i][2], MZ);
+      var px = (w.x - ox).toFixed(1), py = (w.y - oy).toFixed(1);
+      var required = i === from || i === to || r.pts[i][5] ||
+                     (i + 1 <= to && r.pts[i + 1][5]);
+      var moved = lastPx === null || Math.abs(Number(px) - lastPx) >= 0.7 ||
+                  Math.abs(Number(py) - lastPy) >= 0.7;
+      if (!required && (i % visualStep !== 0 || !moved)) continue;
+      cmds.push((started && !r.pts[i][5] ? 'L' : 'M') + px + ' ' + py);
+      lastPx = Number(px); lastPy = Number(py); started = true;
+    }
+    return cmds.join('');
   }
-  var d = cmds.join('');
-  var casing = document.createElementNS(NS, 'path');
-  casing.setAttribute('d', d); casing.setAttribute('fill', 'none');
-  casing.setAttribute('stroke', '#0f1419'); casing.setAttribute('stroke-width', '7');
-  casing.setAttribute('stroke-linejoin', 'round'); casing.setAttribute('opacity', '.6');
-  var path = document.createElementNS(NS, 'path');
-  path.setAttribute('d', d); path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', '#ff5a1f'); path.setAttribute('stroke-width', '3.5');
-  path.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(casing); svg.appendChild(path);
-  function dot(p, col){
+  function routePath(d, color, width, opacity, dash){
+    var p = document.createElementNS(NS, 'path');
+    p.setAttribute('d', d); p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', color); p.setAttribute('stroke-width', width);
+    p.setAttribute('stroke-linejoin', 'round'); p.setAttribute('stroke-linecap', 'round');
+    if (opacity) p.setAttribute('opacity', opacity);
+    if (dash) p.setAttribute('stroke-dasharray', dash);
+    svg.appendChild(p);
+    return p;
+  }
+
+  var n = r.pts.length;
+  var first = Math.max(0, Math.min(n - 2, TRIM_FIRST || 0));
+  var last = TRIM_LAST >= first + 1 ? Math.min(n - 1, TRIM_LAST) : n - 1;
+  var full = commands(0, n - 1), kept = commands(first, last), discarded = '';
+  if (first > 0) discarded += commands(0, first);
+  if (last < n - 1) discarded += commands(last, n - 1);
+  routePath(full, '#0f1419', '7', '.6', '');              // dark casing for all samples
+  routePath(kept, '#ff5a1f', '3.5', '', '');             // section that will remain
+  routePath(discarded, '#7d8a96', '3', '.9', '5 5');    // sections that will be removed
+  svg.setAttribute('aria-label', discarded ?
+    'Trim preview: solid orange route kept, dashed grey route removed, with green START and red END markers' :
+    'Complete route with green START and red END markers');
+  function marker(p, col, label){
     var w2 = ll2w(p[1], p[2], MZ);
+    var x = w2.x - ox, y = w2.y - oy;
     var cc = document.createElementNS(NS, 'circle');
-    cc.setAttribute('cx', w2.x - ox); cc.setAttribute('cy', w2.y - oy);
+    cc.setAttribute('cx', x); cc.setAttribute('cy', y);
     cc.setAttribute('r', 5.5); cc.setAttribute('fill', col);
     cc.setAttribute('stroke', '#fff'); cc.setAttribute('stroke-width', '2');
     svg.appendChild(cc);
+    var tt = document.createElementNS(NS, 'text');
+    tt.setAttribute('x', x < W / 2 ? x + 10 : x - 10);
+    tt.setAttribute('y', y < 18 ? y + 15 : y - 9);
+    tt.setAttribute('text-anchor', x < W / 2 ? 'start' : 'end');
+    tt.setAttribute('fill', '#fff'); tt.setAttribute('stroke', '#0f1419');
+    tt.setAttribute('stroke-width', '3'); tt.setAttribute('paint-order', 'stroke');
+    tt.setAttribute('font-size', '10'); tt.setAttribute('font-weight', '700');
+    tt.textContent = label;
+    svg.appendChild(tt);
   }
-  dot(r.pts[0], '#27c466');
-  dot(r.pts[r.pts.length-1], '#ff4d6a');
+  marker(r.pts[first], '#27c466', 'START');
+  marker(r.pts[last], '#ff4d6a', 'END');
   inner.appendChild(svg);
+  MSVG = svg;
 }
 
 /* ---------- actions ---------- */
@@ -984,6 +1070,79 @@ function closePage(act){
   location.href = 'pebblejs://close#' + encodeURIComponent(payload);
 }
 function uploadNow(){ closePage(JSON.stringify({ act:'retry', id:rid(RUNS[CUR]) })); }
+function trimBounds(r){
+  var first = r.pts[0][0], last = r.pts[r.pts.length - 1][0];
+  var start = r.start ? r.start / 1000 : first;
+  var end = r.dur ? start + r.dur : last;
+  if (start > first) start = first;
+  if (end < last) end = last;
+  return { start:start, end:end };
+}
+function setupTrim(r){
+  var usable = r && r.route !== 0 && r.pts && r.pts.length >= 3;
+  $('trimwrap').style.display = usable ? '' : 'none';
+  $('maptrim').className = usable ? 'maptrim trimming' : 'maptrim';
+  TRIM_FIRST = 0;
+  TRIM_LAST = usable ? r.pts.length - 1 : -1;
+  TRIM_CUM = [];
+  if (!usable) return;
+  var n = r.pts.length;
+  TRIM_CUM[0] = 0;
+  for (var i = 1; i < n; i++)
+    TRIM_CUM[i] = TRIM_CUM[i - 1] + (r.pts[i][5] ? 0 : hav(r.pts[i - 1], r.pts[i]));
+  $('trimstart').max = String(n - 2); $('trimstart').value = '0';
+  $('trimend').max = String(n - 1); $('trimend').value = String(n - 1);
+  trimUi('', true);
+}
+function trimUi(changed, skipMap){
+  var r = RUNS[CUR];
+  if (!r || !r.pts || r.pts.length < 3) return;
+  var s = Math.round(Number($('trimstart').value) || 0);
+  var e = Math.round(Number($('trimend').value) || 0);
+  if (s >= e) {
+    if (changed === 'start') s = e - 1;
+    else e = s + 1;
+  }
+  s = Math.max(0, Math.min(r.pts.length - 2, s));
+  e = Math.max(s + 1, Math.min(r.pts.length - 1, e));
+  $('trimstart').value = String(s); $('trimend').value = String(e);
+  var b = trimBounds(r);
+  var cutStart = s === 0 ? 0 : Math.max(0, r.pts[s][0] - b.start);
+  var cutEnd = e === r.pts.length - 1 ? 0 : Math.max(0, b.end - r.pts[e][0]);
+  var kept = Math.max(0, b.end - b.start - cutStart - cutEnd);
+  $('trimfrom').textContent = cutStart ? '+' + fmtDur(cutStart) : 'activity start';
+  $('trimto').textContent = cutEnd ? '-' + fmtDur(cutEnd) : 'activity end';
+  var keptM = TRIM_CUM.length === r.pts.length ? Math.max(0, TRIM_CUM[e] - TRIM_CUM[s]) : 0;
+  $('trimsummary').textContent = 'Keep ' + fmtDur(kept) + ' · ' +
+    fmtDist(keptM) + ' ' + UN + ' · ' + (e - s + 1) + ' of ' +
+    r.pts.length + ' route points.';
+  $('trimstart').setAttribute('aria-valuetext', $('trimfrom').textContent);
+  $('trimend').setAttribute('aria-valuetext', $('trimto').textContent);
+  $('trimbtn').disabled = (s === 0 && e === r.pts.length - 1) || kept < 10;
+  TRIM_FIRST = s; TRIM_LAST = e;
+  if (!skipMap) scheduleRouteOverlay();
+}
+function resetTrim(){
+  var r = RUNS[CUR];
+  if (!r || !r.pts || r.pts.length < 3) return;
+  $('trimstart').value = '0';
+  $('trimend').value = String(r.pts.length - 1);
+  trimUi('end');
+}
+function applyTrim(){
+  var r = RUNS[CUR];
+  if (!r || !r.pts || r.pts.length < 3) return;
+  var s = Math.round(Number($('trimstart').value));
+  var e = Math.round(Number($('trimend').value));
+  if (!(s >= 0 && e > s && e < r.pts.length) ||
+      (s === 0 && e === r.pts.length - 1)) return;
+  var b = trimBounds(r);
+  var lo = s === 0 ? b.start : r.pts[s][0];
+  var hi = e === r.pts.length - 1 ? b.end : r.pts[e][0];
+  if (hi - lo < 10) return;
+  if (confirm('Keep ' + fmtDur(hi - lo) + ' of this activity? This cannot be undone.'))
+    closePage(JSON.stringify({ act:'trim', id:rid(r), first:s, last:e }));
+}
 function retype(to){
   if (actOf(RUNS[CUR]) === to) return;          // already that type
   closePage(JSON.stringify({ act:'retype', id:rid(RUNS[CUR]), to: to }));

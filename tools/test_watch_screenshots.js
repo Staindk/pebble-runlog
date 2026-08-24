@@ -15,8 +15,7 @@ var screens = [
   'route', 'stats', 'trends', 'actions'
 ];
 var platforms = {
-  emery: [200, 228],
-  basalt: [144, 168]
+  emery: [200, 228]
 };
 var signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 

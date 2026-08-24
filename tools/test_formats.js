@@ -302,7 +302,9 @@ console.log('\nALL FORMAT TESTS PASSED');
     var o = f.update(lat + north / 110540,
                      115.85 + east / (111320 * coslat), acc, sec);
     return { x: (o.lon - 115.85) * 111320 * coslat,
-             y: (o.lat - lat) * 110540, speed: o.speed };
+             y: (o.lat - lat) * 110540, speed: o.speed,
+             accepted: o.accepted, innovation2: o.innovation2,
+             robust: o.robust };
   }
 
   // (3) an equal/reordered timestamp is ignored. The old 1 ms coercion turned
@@ -331,15 +333,19 @@ console.log('\nALL FORMAT TESTS PASSED');
   assert(maxEast < 63,
          'kalman: turn overshoot stays below 3 m (got ' + maxEast.toFixed(1) + ' m)');
 
-  // (5) W3C accuracy is a 95%-confidence radius. A precise fix should pull
-  // much harder than a fuzzy one after the same history.
-  function accuracyPull(acc) {
-    var fa = K.make({ maxSpeed: 12 });
+  // (5) Core Android forwards Location.getAccuracy(), a 68%-confidence radial
+  // value. A precise fix should pull much harder than a fuzzy one, while the
+  // old W3C-95 interpretation is demonstrably more optimistic for the same
+  // numeric radius.
+  function accuracyPull(acc, confidence) {
+    var fa = K.make({ maxSpeed: 12, accuracyConfidence: confidence || 0.68 });
     xy(fa, 0, 0, 0, 8); xy(fa, 3, 0, 1, 8); xy(fa, 6, 0, 2, 8);
     return xy(fa, 15, 0, 3, acc).x;
   }
   assert(accuracyPull(3) > accuracyPull(40) + 3,
          'kalman: reported confidence materially controls measurement gain');
+  assert(accuracyPull(8, 0.95) > accuracyPull(8, 0.68) + 0.2,
+         'kalman: Android 68%-radius is not misread as the tighter W3C 95% radius');
 
   // (6) stale velocity is meaningless after a long GPS outage: re-anchor at
   // the returned fix rather than predicting beyond it.
@@ -348,6 +354,20 @@ console.log('\nALL FORMAT TESTS PASSED');
   var gap = xy(fg, 100, 0, 100, 8);
   assert(Math.abs(gap.x - 100) < 0.2 && gap.speed === 0,
          'kalman: long gap re-anchors without stale-velocity overshoot');
+
+  // (7) A physically possible but statistically implausible lateral jump is
+  // rejected as one 2D observation. The following good fix predicts from the
+  // last accepted time/state and is accepted normally.
+  var fi = K.make({ maxSpeed: 12, accelStd: 1.0 });
+  var normal;
+  for (var q = 0; q <= 10; q++) normal = xy(fi, q * 3, 0, q, 3);
+  var jump = xy(fi, 36, 20, 12, 3);       // 10 m/s lateral component: plausible, not credible
+  assert.strictEqual(jump.accepted, false, 'kalman: large normalized innovation is rejected atomically');
+  assert(jump.innovation2 > 13.82, 'kalman: rejected jump exceeds the 99.9% 2D gate');
+  var recovered = xy(fi, 39, 0, 13, 3);
+  assert.strictEqual(recovered.accepted, true, 'kalman: good fix after rejection is accepted');
+  assert(Math.abs(recovered.y) < 2 && recovered.x > normal.x,
+         'kalman: rejected jump does not poison the following position');
   console.log('KALMAN OK');
 })();
 

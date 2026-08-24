@@ -1,7 +1,7 @@
 {
   "name": "runlog",
   "author": "Kai Bagley",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "keywords": [
     "pebble-app"
   ],
@@ -10,11 +10,10 @@
   "pebble": {
     "displayName": "RunLog",
     "uuid": "8f2c3a1e-6b4d-4e7a-9c0f-2d5e8b714a96",
+    "projectType": "native",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
-      "basalt",
-      "diorite",
       "emery"
     ],
     "capabilities": [

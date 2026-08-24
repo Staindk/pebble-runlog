@@ -31,6 +31,7 @@ function makeWorld() {
     glances: [],       // Pebble.appGlanceReload payloads
     geoStarts: 0,
     geoStops: 0,
+    geoOptions: [],
     storeWrites: {},
     intervalCalls: 0,
     clockMs: 0
@@ -50,7 +51,11 @@ function makeWorld() {
 
   var navigatorStub = {
     geolocation: {
-      watchPosition: function (cb) { W.geoCb = cb; W.geoStarts++; return W.geoStarts; },
+      watchPosition: function (cb, err, options) {
+        W.geoCb = cb; W.geoStarts++;
+        W.geoOptions.push(JSON.parse(JSON.stringify(options || {})));
+        return W.geoStarts;
+      },
       clearWatch: function () { W.geoStops++; }
     }
   };
@@ -261,6 +266,12 @@ function storedRuns(W) {
 
   W.clockMs = 1750000000000;
   W.fire('appmessage', { payload: { CMD: 1 } });
+  assert.strictEqual(W.geoOptions[W.geoOptions.length - 1].frequency, 1000,
+                     'Run requests the current Core bridge at one-second intervals');
+  assert.strictEqual(W.geoOptions[W.geoOptions.length - 1].enableHighAccuracy, true,
+                     'Run requests high-accuracy phone location');
+  assert.strictEqual(W.geoOptions[W.geoOptions.length - 1].maximumAge, undefined,
+                     'continuous watch does not pretend maximumAge is forwarded');
   assert(W.store['runlog.inprogress'], 'in-progress snapshot created');
 
   var w = makeWalker(W, 1750000000, -31.9500, 115.8500);
@@ -295,12 +306,14 @@ function storedRuns(W) {
   assert(msgsWith(W, 'ACC').some(function (m) { return m.DIST !== undefined; }),
          'accuracy and live stats from one fix share a packet');
 
-  // ---- auto-pause: 3 slow fixes pause, 2 fast resume ----
+  // ---- auto-pause: 4 slow fixes pause, 2 fast resume ----
   w.step(0.2, 5, 35); w.step(0.2, 5, 35);
   assert(!lastWith(W, 'APAUSE'), 'not paused after 2 slow fixes');
   w.step(0.2, 5, 35);
+  assert(!lastWith(W, 'APAUSE'), 'not paused after 3 slow fixes');
+  w.step(0.2, 5, 35);
   var ap = lastWith(W, 'APAUSE');
-  assert(ap && ap.APAUSE === 1, 'auto-paused after 3 slow fixes');
+  assert(ap && ap.APAUSE === 1, 'auto-paused after 4 slow fixes');
 
   w.step(0.1, 5, 35); w.step(0.1, 5, 35);          // still parked
   w.step(2.0, 5, 35);
@@ -323,7 +336,9 @@ function storedRuns(W) {
 
   var saved = lastWith(W, 'SAVED');
   assert(saved, 'SAVED bundle sent');
-  assert(Math.abs(saved.AVGP - 300) <= 8, 'SAVED avg pace, got ' + saved.AVGP);
+  // Active time includes the deliberately conservative fourth slow observation
+  // before auto-pause; at this fixture's five-second GPS cadence that is ~5 s/km.
+  assert(Math.abs(saved.AVGP - 310) <= 8, 'SAVED debounce-aware avg pace, got ' + saved.AVGP);
   assert(saved.AVGHR >= 150 && saved.AVGHR <= 160, 'SAVED avg HR ' + saved.AVGHR);
   assert.strictEqual(saved.MAXHR, 160, 'SAVED max HR');
   assert(saved.MOVS >= 430 && saved.MOVS <= 480, 'moving secs ' + saved.MOVS);
@@ -665,13 +680,16 @@ function storedRuns(W) {
   W.fire('appmessage', { payload: { CMD: 1 } });
   var w2 = makeWalker(W, 1750310000, -31.9500, 115.8500);
   for (var k = 0; k < 10; k++) w2.step(8, 5, null);
-  w2.step(0.8, 5, null); w2.step(0.8, 5, null);
-  assert.strictEqual(lastWith(W, 'APAUSE'), null, 'two slow fixes not enough');
+  w2.step(0.8, 5, null); w2.step(0.8, 5, null); w2.step(0.8, 5, null);
+  assert.strictEqual(lastWith(W, 'APAUSE'), null, 'three slow fixes not enough');
   w2.step(0.8, 5, null);
   assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1,
                      '0.8 m/s pauses a ride (would not pause a run)');
   w2.step(2.5, 5, null); w2.step(2.5, 5, null);
-  assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 0, 'ride resumed');
+  assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1,
+                     'two fast ride fixes do not resume from a transient burst');
+  w2.step(2.5, 5, null);
+  assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 0, 'ride resumed after three fast fixes');
 
   for (var n = 0; n < 130; n++) w2.step(8, 5, null);   // ~5.2 km more
   var sp = msgsWith(W, 'SPLIT');
@@ -685,7 +703,10 @@ function storedRuns(W) {
   assert.strictEqual(ride.act, 2, 'ride activity stored');
   assert.strictEqual(ride.cad, 0, 'no wrist cadence on rides');
   assert.strictEqual(ride.splits[0].d, 5000, 'first ride split is 5 km');
-  assert(Math.abs(ride.splits[0].s - 625) <= 10, '5 km at 8 m/s ~625 s, got ' + ride.splits[0].s);
+  // The tuned four-slow/three-fast Ride debounce deliberately retains roughly
+  // 15 seconds of evidence before removing the stopped interval.
+  assert(Math.abs(ride.splits[0].s - 640) <= 12,
+         '5 km ride includes conservative auto-pause debounce, got ' + ride.splits[0].s);
 
   /* uploads are user-driven: nothing leaves on save */
   assert.strictEqual(W.xhrs.length, 1, 'ride save does not auto-upload');
@@ -1296,7 +1317,10 @@ function storedRuns(W) {
   W.clockMs = t0 * 1000;
   W.fire('appmessage', { payload: { CMD: 1 } });
   W.fire('appmessage', { payload: { CMD: 4 } });
-  assert(lastWith(W, 'NOSAVE'), 'empty stop reports NOSAVE');
+  var noSave = lastWith(W, 'NOSAVE');
+  assert(noSave, 'empty stop reports NOSAVE');
+  assert(noSave.SID, 'NOSAVE is tagged with the session it is allowed to clear');
+  assert.strictEqual(noSave.PROTO, 3, 'NOSAVE uses the session-safe protocol');
   assert(!lastWith(W, 'SAVED'), 'empty stop does NOT claim SAVED');
   assert(!W.store['runlog.runs'] || storedRuns(W).length === 0, 'nothing stored for an empty stop');
 
@@ -1476,6 +1500,26 @@ function storedRuns(W) {
   assert.strictEqual(storedRuns(W).length, 0,
                      'session-scoped discard removes the intended workout');
   assert.strictEqual(lastWith(W, 'ACK').RESULT, 1, 'discard success is acknowledged');
+
+  // A protocol-v3 empty stop first clears the affected SID with NOSAVE, then
+  // ACKs the command from the genuinely blank READY state. It must not
+  // re-advertise the discarded identifier in that trailing snapshot.
+  var E = makeWorld(), emptySid = 0x23456789;
+  E.boot(); E.fire('ready', {}); E.clockMs = (t0 + 1000) * 1000;
+  E.fire('appmessage', { payload: {
+    PROTO: 3, SID: emptySid, SEQ: 1, CMD: 1, WSTATE: 1,
+    STARTTS: t0 + 1000, ACTIVE: 0
+  } });
+  E.fire('appmessage', { payload: {
+    PROTO: 3, SID: emptySid, SEQ: 2, CMD: 4, WSTATE: 3,
+    STARTTS: t0 + 1000, ACTIVE: 0
+  } });
+  assert.strictEqual(lastWith(E, 'NOSAVE').SID, emptySid,
+                     'empty-stop NOSAVE identifies only the discarded session');
+  var emptyAck = lastWith(E, 'ACK');
+  assert.strictEqual(emptyAck.ACK, 2, 'empty STOP is acknowledged');
+  assert.strictEqual(emptyAck.SID, 0, 'trailing READY ACK has no stale SID');
+  assert.strictEqual(emptyAck.WSTATE, 0, 'trailing ACK describes a blank recorder');
   console.log('scenario 19 (versioned session protocol, duplicates/reordering) OK');
 })();
 
@@ -1656,8 +1700,8 @@ function storedRuns(W) {
 
 /* =======================================================================
  * Scenario 24: Hike is end-to-end and its explicitly selected fixed profile reduces
- * watch-bound telemetry without changing the stored GPS track. A long manual
- * pause releases GPS, while resume reacquires it and starts a new segment.
+ * watch-bound telemetry and route density. A long manual pause releases GPS,
+ * while resume reacquires it and starts a new segment.
  * ===================================================================== */
 (function scenario24() {
   var W = makeWorld(); W.boot(); W.fire('ready', {});
@@ -1666,6 +1710,8 @@ function storedRuns(W) {
   W.fire('appmessage', { payload: { MODE: 3, AUTOP: 1, SPLITP: 1 } });
   assert.strictEqual(JSON.parse(W.store['runlog.set']).mode, 3, 'Hike mode stored');
   W.fire('appmessage', { payload: { CMD: 1 } });
+  assert.strictEqual(W.geoOptions[W.geoOptions.length - 1].frequency, 2000,
+                     'Hike requests the current Core bridge at two-second intervals');
   W.fire('appmessage', { payload: { HR: 118, STEPS: 0, SAMPLET: t0 } });
   W.msgs = [];
 
@@ -1673,8 +1719,8 @@ function storedRuns(W) {
   var steps = 0, i;
   for (i = 1; i <= 10; i++) {
     w.step(0.55, 5, 20 + i);   // steep-hike speed: above Hike's 0.30 m/s pause gate
-    if (i % 3 === 0) {
-      steps += 24;
+    if (i % 6 === 0) {
+      steps += 48;
       W.fire('appmessage', { payload: {
         HR: 118 + i, STEPS: steps, SAMPLET: t0 + i * 5
       } });
@@ -1696,8 +1742,8 @@ function storedRuns(W) {
   assert.strictEqual(W.geoStarts, starts + 1, 'Hike resume reacquires GPS');
   for (i = 11; i <= 25; i++) {
     w.step(1.1, 5, 30 + i);
-    if (i % 3 === 0) {
-      steps += 24;
+    if (i % 6 === 0) {
+      steps += 48;
       W.fire('appmessage', { payload: {
         HR: 125, STEPS: steps, SAMPLET: t0 + i * 5
       } });
@@ -1705,13 +1751,16 @@ function storedRuns(W) {
   }
 
   var liveN = msgsWith(W, 'DIST').length;
-  assert(liveN >= 8 && liveN <= 10,
-         'Hike sends roughly one live snapshot per 15 s, got ' + liveN);
+  assert(liveN >= 3 && liveN <= 5,
+         'Hike sends roughly one live snapshot per 30 s, got ' + liveN);
   W.fire('appmessage', { payload: { CMD: 4, HR: 125, STEPS: steps } });
   var hike = storedRuns(W)[0];
   assert.strictEqual(hike.act, 3, 'saved activity is Hike');
   assert(/_hike$/.test(hike.name), 'Hike name template: ' + hike.name);
-  assert.strictEqual(hike.pts.length, 25, 'Hike power profile preserves every accepted GPS point');
+  assert.strictEqual(hike.pts.length, 13,
+                     'Hike stores the clean route at its reduced point cadence');
+  assert(hike.dist >= 95 && hike.dist <= 105,
+         'sparser Hike route preserves genuine slow distance, got ' + hike.dist + ' m');
   assert(hike.pts.some(function (p) { return p[5] === 1; }),
          'resume is preserved as an export segment boundary');
   assert(hike.cad > 0, 'Hike keeps foot cadence');
@@ -2139,7 +2188,7 @@ function storedRuns(W) {
     SEQ:1, CMD:1, WSTATE:1, STARTTS:t0, ACTIVE:0 } });
   var w = makeWalker(W, t0, -31.95, 115.85);
   for (var i = 0; i < 6; i++) w.step(2.5, 5, 8);
-  w.step(0.2, 5, 8); w.step(0.2, 5, 8); w.step(0.2, 5, 8);
+  w.step(0.2, 5, 8); w.step(0.2, 5, 8); w.step(0.2, 5, 8); w.step(0.2, 5, 8);
   assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1, 'fixture reached auto-pause');
   var before = lastWith(W, 'ACTIVE').ACTIVE;
   W.fire('appmessage', { payload: { PROTO:3, SID:sid, SEQ:2, CMD:2,
@@ -2182,9 +2231,9 @@ function storedRuns(W) {
 })();
 
 /* =======================================================================
- * 34 — phone-first watch settings survive a disconnected/stale HELLO, travel
- * in one protected packet, and clear their pending marker only after the watch
- * echoes the complete applied snapshot.
+ * 34 — bidirectional watch settings survive disconnected/stale HELLO packets.
+ * Phone edits clear only after a complete watch echo; an explicit local watch
+ * edit supersedes an older pending phone value and receives its own full ACK.
  * ===================================================================== */
 (function scenario34() {
   var W = makeWorld(); W.boot(); W.fire('ready', {}); W.msgs.length = 0;
@@ -2223,7 +2272,413 @@ function storedRuns(W) {
   } }) });
   assert.strictEqual(lastWith(W, 'CFGSET'), null,
                      'unrelated export edit does not resend unchanged watch settings');
-  console.log('scenario 34 (durable phone-first watch settings) OK');
+
+  // Queue another phone edit, then make a newer change directly on the watch.
+  // CFGSET=2 identifies that deliberate local edit; it must not be overwritten
+  // by the stale phone snapshot still marked pending.
+  var stalePhone = {mi:true,ap:false,splits:true,maxHr:180,restHr:48,zone:false};
+  W.fire('webviewclosed', { response: JSON.stringify({ act:'cfg', cfg:{
+    preset:'custom', url:'', name:'', fmt:'tcx', target:{type:0,lo:0,hi:0,value:0},
+    watch:stalePhone
+  } }) });
+  assert.strictEqual(JSON.parse(W.store['runlog.set']).pending, true,
+                     'second disconnected phone edit is pending');
+
+  // A partial packet carrying the local-edit marker is not authoritative. It
+  // must neither discard the pending phone snapshot nor receive a false ACK.
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,CFGSET:2,PROTO:3,SID:0,SEQ:0,WSTATE:0,
+    UNITS:0,AUTOP:1,MODE:0} });
+  stored = JSON.parse(W.store['runlog.set']);
+  assert.deepStrictEqual(stored,
+    {mi:true,ap:false,splits:true,mode:0,maxHr:180,restHr:48,zone:false,pending:true},
+    'incomplete watch-local snapshot is ignored and phone edit remains pending');
+  assert.strictEqual(W.msgs.some(function (x) { return x.CFGSET === 2; }), false,
+                     'incomplete watch-local snapshot receives no acceptance ACK');
+
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,CFGSET:2,PROTO:3,SID:0,SEQ:0,WSTATE:0,
+    UNITS:2,AUTOP:1,SPLITP:0,MODE:0,MHR:300,RHR:52,HRZONE:1} });
+  stored = JSON.parse(W.store['runlog.set']);
+  assert.deepStrictEqual(stored,
+    {mi:true,ap:false,splits:true,mode:0,maxHr:180,restHr:48,zone:false,pending:true},
+    'complete but out-of-range watch-local snapshot is ignored');
+  assert.strictEqual(W.msgs.some(function (x) { return x.CFGSET === 2; }), false,
+                     'malformed watch-local snapshot receives no acceptance ACK');
+
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,CFGSET:2,PROTO:3,SID:0,SEQ:0,WSTATE:0,
+    UNITS:0,AUTOP:1,SPLITP:0,MODE:0,MHR:188,RHR:52,HRZONE:1} });
+  stored = JSON.parse(W.store['runlog.set']);
+  assert.deepStrictEqual(stored,
+    {mi:false,ap:true,splits:false,mode:0,maxHr:188,restHr:52,zone:true,pending:false},
+    'newer watch edit supersedes the stale pending phone snapshot');
+  var localAck = lastWith(W, 'CFGSET');
+  assert(localAck && localAck.CFGSET === 2 && localAck.UNITS === 0 &&
+         localAck.AUTOP === 1 && localAck.SPLITP === 0 && localAck.MHR === 188 &&
+         localAck.RHR === 52 && localAck.HRZONE === 1,
+         'phone explicitly acknowledges the complete watch-local snapshot');
+  console.log('scenario 34 (durable bidirectional watch settings) OK');
+})();
+
+/* =======================================================================
+ * 35 — tuned per-activity auto-pause profiles reject borderline slow motion,
+ * require four genuinely slow observations, and debounce resume by mode.
+ * ===================================================================== */
+(function scenario35() {
+  var profiles = [
+    { act:0, name:'Run',  near:0.67, slow:0.50, fast:1.60, fastN:2 },
+    { act:1, name:'Walk', near:0.50, slow:0.30, fast:1.00, fastN:2 },
+    { act:2, name:'Ride', near:0.95, slow:0.70, fast:2.50, fastN:3 },
+    { act:3, name:'Hike', near:0.40, slow:0.20, fast:0.80, fastN:3 }
+  ];
+
+  profiles.forEach(function (p) {
+    var W = makeWorld();
+    W.clockMs = (1752200000 + p.act * 1000) * 1000;
+    W.boot(); W.fire('ready', {});
+    W.fire('appmessage', { payload:{MODE:p.act,AUTOP:1,SPLITP:0} });
+    W.fire('appmessage', { payload:{CMD:1} });
+    var w = makeWalker(W, Math.round(W.clockMs / 1000), -31.95, 115.85);
+    for (var i = 0; i < 5; i++) w.step(p.fast, 5, 8);
+    W.msgs.length = 0;
+
+    for (i = 0; i < 5; i++) w.step(p.near, 5, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE'), null,
+                       p.name + ' keeps moving just above its tuned pause gate');
+
+    // Slow evidence is consecutive: real movement in the middle must clear it.
+    w.step(p.slow, 5, 8); w.step(p.slow, 5, 8); w.step(p.fast, 5, 8);
+    w.step(p.slow, 5, 8); w.step(p.slow, 5, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE'), null,
+                       p.name + ' resets slow evidence after real movement');
+
+    // A stale GPS return is not stop evidence either. Valid but irregular fixes
+    // below the 12 s freshness boundary still count as individual observations.
+    w.step(p.slow, 20, 8);
+    w.step(p.slow, 2, 8); w.step(p.slow, 8, 8); w.step(p.slow, 2, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE'), null,
+                       p.name + ' ignores a stale gap plus three fresh slow observations');
+    w.step(p.slow, 8, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1,
+                       p.name + ' pauses after four fresh, irregular slow observations');
+
+    // The same stale-boundary rule applies while paused, so a movement fix
+    // after an outage cannot resume the workout by itself.
+    w.step(p.fast, 20, 8);
+    for (i = 0; i < p.fastN - 1; i++) w.step(p.fast, i % 2 ? 8 : 2, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 1,
+                       p.name + ' does not resume on insufficient movement evidence');
+    w.step(p.fast, 8, 8);
+    assert.strictEqual(lastWith(W, 'APAUSE').APAUSE, 0,
+                       p.name + ' resumes after its full fast-fix debounce');
+  });
+  console.log('scenario 35 (tuned per-activity auto-pause profiles) OK');
+})();
+
+/* =======================================================================
+ * 36 — Hike sampling preserves very slow progress, rejects gorge-quality
+ * fixes, and treats uncertain back-and-forth multipath as stopped motion.
+ * ===================================================================== */
+(function scenario36() {
+  var W = makeWorld(), t0 = 1752300000;
+  W.clockMs = t0 * 1000; W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload:{MODE:3,AUTOP:0,SPLITP:0} });
+  W.fire('appmessage', { payload:{CMD:1} });
+
+  var lat = -31.95, lon = 115.85, east = 0, t = t0;
+  var metresLon = 111320 * Math.cos(lat * Math.PI / 180);
+  function fix(dt, eastM, northM, acc) {
+    t += dt; W.clockMs = t * 1000;
+    W.geoCb({ timestamp:t * 1000, coords:{
+      latitude:lat + northM / 111320,
+      longitude:lon + eastM / metresLon,
+      accuracy:acc, altitude:20
+    } });
+  }
+
+  // Establish a short real approach, then stand still while optimistic
+  // 30-m fixes alternate by 16 m. This is below the Hike outlier speed gate,
+  // so route cadence + Kalman smoothing—not a contrived rejection—must tame it.
+  for (var i = 1; i <= 4; i++) { east = i * 3; fix(5, east, 0, 8); }
+  for (i = 0; i < 24; i++) fix(5, east + (i % 2 ? -8 : 8), 0, 30);
+
+  // Openly weak gorge fixes are ignored completely and cannot extend pause
+  // evidence across the accuracy outage.
+  for (i = 0; i < 12; i++) fix(5, east + (i % 2 ? -20 : 20), 0, 45);
+  W.fire('appmessage', { payload:{CMD:4} });
+
+  var hike = storedRuns(W)[0];
+  assert.strictEqual(hike.act, 3, 'gorge fixture remains a Hike');
+  assert(hike.pts.length >= 3 && hike.pts.length <= 10,
+         'Hike thins uncertain stopped route points, got ' + hike.pts.length);
+  assert(hike.dist <= 25,
+         'stopped multipath adds little route distance, got ' + hike.dist + ' m');
+  assert.strictEqual(lastWith(W, 'GPSOK').GPSOK, 0,
+                     'watch reports the rejected 45 m gorge fixes as weak GPS');
+
+  // The uncertainty dead-band is measured from the last retained point, not
+  // from every incoming fix. A genuinely slow, consistent trail therefore
+  // accumulates until it clears the floor instead of being starved forever.
+  function slowHike(acc) {
+    var S = makeWorld(), s0 = t0 + 1000 + acc;
+    S.clockMs = s0 * 1000; S.boot(); S.fire('ready', {});
+    S.fire('appmessage', { payload:{MODE:3,AUTOP:1,SPLITP:0} });
+    S.fire('appmessage', { payload:{CMD:1} });
+    var walker = makeWalker(S, s0, -31.95, 115.85);
+    for (var j = 0; j < 180; j++) walker.step(0.35, 2, 20, acc);
+    assert(!msgsWith(S, 'APAUSE').some(function (m) { return m.APAUSE === 1; }),
+           '0.35 m/s Hike does not false-pause at ' + acc + ' m accuracy');
+    S.fire('appmessage', { payload:{CMD:4} });
+    var r = storedRuns(S)[0];
+    assert(r.pts.length >= 15 && r.pts.length <= 40,
+           'slow Hike remains sparse at ' + acc + ' m accuracy, got ' + r.pts.length + ' points');
+    assert(r.dist >= 105 && r.dist <= 130,
+           'slow Hike preserves ~123 m at ' + acc + ' m accuracy, got ' + r.dist + ' m');
+  }
+  slowHike(8);
+  slowHike(20);
+
+  // With auto-pause enabled, optimistic 30 m fixes alternating across a
+  // stationary hiker must pause rather than masquerade as repeated fast legs.
+  var A = makeWorld(), a0 = t0 + 2000;
+  A.clockMs = a0 * 1000; A.boot(); A.fire('ready', {});
+  A.fire('appmessage', { payload:{MODE:3,AUTOP:1,SPLITP:0} });
+  A.fire('appmessage', { payload:{CMD:1} });
+  var at = a0, ae = 0;
+  function afix(dt, eastM, acc) {
+    at += dt; A.clockMs = at * 1000;
+    A.geoCb({ timestamp:at * 1000, coords:{
+      latitude:lat, longitude:lon + eastM / metresLon,
+      accuracy:acc, altitude:20
+    } });
+  }
+  for (i = 1; i <= 5; i++) { ae = i * 4; afix(5, ae, 8); }
+  A.msgs.length = 0;
+  for (i = 0; i < 12; i++) afix(5, ae + (i % 2 ? -8 : 8), 30);
+  assert.strictEqual(lastWith(A, 'APAUSE').APAUSE, 1,
+                     'uncertain Hike reversals become sustained stop evidence');
+  for (i = 0; i < 6; i++) afix(5, ae + (i % 2 ? -8 : 8), 30);
+  afix(5, ae + 10, 30);               // one plausible-looking gorge burst
+  afix(5, ae - 8, 30);                // reflection returns across the hiker
+  assert.strictEqual(lastWith(A, 'APAUSE').APAUSE, 1,
+                     'gorge oscillation and one burst cannot auto-resume');
+  for (i = 1; i <= 5 && lastWith(A, 'APAUSE').APAUSE === 1; i++)
+    afix(5, ae + i * 5, 8);
+  assert.strictEqual(lastWith(A, 'APAUSE').APAUSE, 0,
+                     'consistent accurate movement still auto-resumes');
+  console.log('scenario 36 (Hike slow trail, gorge sampling and auto-pause) OK');
+})();
+
+/* =======================================================================
+ * 37 — Current Core bridge profile: stale returns create route segments,
+ * normalized-innovation rejection is atomic, and guarded receiver speed can
+ * drive auto-pause without trusting coordinate jitter.
+ * ===================================================================== */
+(function scenario37() {
+  var lat = -31.95, lon = 115.85;
+  var metresLon = 111320 * Math.cos(lat * Math.PI / 180);
+
+  function feeder(W, t0) {
+    var t = t0;
+    return function (dt, eastM, northM, acc, speed) {
+      t += dt; W.clockMs = t * 1000;
+      W.geoCb({ coords:{                         // current Core bridge supplies no timestamp
+        latitude:lat + northM / 111320,
+        longitude:lon + eastM / metresLon,
+        accuracy:acc, altitude:20,
+        speed:speed
+      } });
+    };
+  }
+
+  // A real callback outage must be a GPX segment break and must not add the
+  // 100 m relocation across the unseen interval to distance or moving time.
+  var G = makeWorld(), g0 = 1752400000;
+  G.clockMs = g0 * 1000; G.boot(); G.fire('ready', {});
+  G.fire('appmessage', { payload:{MODE:0,AUTOP:0,SPLITP:0} });
+  G.fire('appmessage', { payload:{CMD:1} });
+  var gf = feeder(G, g0);
+  gf(1, 0, 0, 8, 3); gf(3, 9, 0, 8, 3); gf(3, 18, 0, 8, 3);
+  gf(12, 118, 0, 8, 3);                    // beyond the 10 s stale boundary
+  gf(3, 127, 0, 8, 3); gf(3, 136, 0, 8, 3);
+  G.fire('appmessage', { payload:{CMD:4} });
+  var gapRun = storedRuns(G)[0];
+  assert.strictEqual(gapRun.pts.filter(function (p) { return p[5] === 1; }).length, 1,
+                     'first point after a stale callback gap starts one new route segment');
+  assert(gapRun.dist >= 28 && gapRun.dist <= 42,
+         'stale gap adds only observed movement, not the 100 m relocation: ' + gapRun.dist + ' m');
+
+  // A plausible-speed lateral jump can pass the physical speed cap but should
+  // fail the covariance-aware innovation gate without poisoning the next fix.
+  var I = makeWorld(), i0 = g0 + 1000;
+  I.clockMs = i0 * 1000; I.boot(); I.fire('ready', {});
+  I.fire('appmessage', { payload:{MODE:0,AUTOP:0,SPLITP:0} });
+  I.fire('appmessage', { payload:{CMD:1} });
+  var inf = feeder(I, i0), k;
+  for (k = 0; k <= 10; k++) inf(1, k * 3, 0, 3, 3);
+  inf(2, 36, 20, 3, 3);                    // ~10.4 m/s raw: plausible Run, bad innovation
+  inf(1, 39, 0, 3, 3);                     // normal continuation must recover immediately
+  I.fire('appmessage', { payload:{CMD:4} });
+  var innovationRun = storedRuns(I)[0];
+  var northSpan = innovationRun.pts.reduce(function (m, p) {
+    return Math.max(m, Math.abs((p[1] - lat) * 111320));
+  }, 0);
+  assert(northSpan < 5, 'innovation-rejected lateral jump stays out of route: ' + northSpan + ' m');
+  assert(msgsWith(I, 'GPSOK').some(function (m) { return m.GPSOK === 0; }) &&
+         lastWith(I, 'GPSOK').GPSOK === 1,
+         'watch sees rejected measurement then healthy GPS recovery');
+
+  // Receiver speed is allowed only as guarded auto-pause evidence. Coordinate
+  // jitter says ~0.8 m/s here, but Doppler speed 0 correctly identifies a stop;
+  // two genuine 1.6 m/s readings then meet Run's normal resume debounce.
+  var S = makeWorld(), s0 = g0 + 2000;
+  S.clockMs = s0 * 1000; S.boot(); S.fire('ready', {});
+  S.fire('appmessage', { payload:{MODE:0,AUTOP:1,SPLITP:0} });
+  S.fire('appmessage', { payload:{CMD:1} });
+  var sf = feeder(S, s0), anchor = 0;
+  for (k = 1; k <= 5; k++) { anchor = k * 15; sf(5, anchor, 0, 8, 3); }
+  S.msgs.length = 0;
+  for (k = 0; k < 4; k++) sf(5, anchor + (k % 2 ? -2 : 2), 0, 8, 0);
+  assert.strictEqual(lastWith(S, 'APAUSE').APAUSE, 1,
+                     'zero receiver speed pauses despite moving coordinates');
+  sf(5, anchor + 4, 0, 8, 1.6);
+  assert.strictEqual(lastWith(S, 'APAUSE').APAUSE, 1,
+                     'one receiver-speed observation cannot resume');
+  sf(5, anchor + 8, 0, 8, 1.6);
+  assert.strictEqual(lastWith(S, 'APAUSE').APAUSE, 0,
+                     'two trustworthy receiver-speed observations resume Run');
+  console.log('scenario 37 (Core GPS request, gaps, innovations and receiver speed) OK');
+})();
+
+/* =======================================================================
+ * 38 — Phone-side start/end trimming rewrites the immutable route journal,
+ * preserves pause segments, and rebuilds every route-derived aggregate.
+ * ===================================================================== */
+(function scenario38() {
+  var W = makeWorld(), t0 = 1752500000, t = t0;
+  var lat = -31.95, lon = 115.85, east = 0;
+  var metresLon = 111320 * Math.cos(lat * Math.PI / 180);
+  W.clockMs = t0 * 1000; W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload:{MODE:0,AUTOP:0,SPLITP:0} });
+  W.fire('appmessage', { payload:{CMD:1} });
+
+  function fix(n) {
+    t += 5; east += 15; W.clockMs = t * 1000;
+    W.fire('appmessage', { payload:{HR:120 + n * 3, STEPS:n * 12, SAMPLET:t} });
+    W.geoCb({ timestamp:t * 1000, coords:{
+      latitude:lat, longitude:lon + east / metresLon,
+      accuracy:8, altitude:20 + n
+    } });
+  }
+  for (var i = 1; i <= 7; i++) fix(i);
+  W.fire('appmessage', { payload:{CMD:2} });
+  t += 30; W.clockMs = t * 1000;
+  W.fire('appmessage', { payload:{CMD:3} });
+  for (i = 8; i <= 15; i++) fix(i);
+  W.fire('appmessage', { payload:{CMD:4} });
+
+  var original = storedRuns(W)[0];
+  assert(original.pts.length >= 12, 'trim fixture has a useful route');
+  assert(original.pts.some(function (p) { return p[5] === 1; }),
+         'trim fixture contains a pause boundary');
+  var rawIndex = JSON.parse(W.store['runlog.runs']);
+  rawIndex[0].up = 1;                         // an uploaded copy must become stale
+  W.store['runlog.runs'] = JSON.stringify(rawIndex);
+  var oldJournal = rawIndex[0]._j.id;
+  var first = 2, last = original.pts.length - 3;
+  var expected = original.pts.slice(first, last + 1).map(function (p) { return p.slice(); });
+  expected[0][5] = 0;
+  var stableId = original.sid || original.start;
+  W.fire('webviewclosed', { response:JSON.stringify({
+    act:'trim', id:stableId, first:first, last:last
+  }) });
+
+  var trimmed = storedRuns(W)[0];
+  assert.strictEqual(trimmed.pts.length, expected.length, 'only selected points remain');
+  assert.strictEqual(JSON.stringify(trimmed.pts), JSON.stringify(expected),
+                     'trim preserves retained measurements exactly');
+  assert.strictEqual(trimmed.start, expected[0][0] * 1000,
+                     'beginning trim updates activity start time');
+  assert.strictEqual(trimmed.dur, expected[expected.length - 1][0] - expected[0][0],
+                     'both cuts rebuild elapsed duration from retained boundaries');
+  assert.strictEqual(trimmed.up, 3, 'uploaded activity is marked changed locally');
+  assert(trimmed.steps > 0 && trimmed.steps < original.steps,
+         'step aggregate is proportionally reduced');
+  assert(trimmed.hrSecs > 0 && trimmed.avgHr > 0 && trimmed.maxHr < original.maxHr,
+         'HR aggregates are rebuilt from retained samples');
+  assert.strictEqual(trimmed.pts.filter(function (p) { return p[5] === 1; }).length, 1,
+                     'pause boundary inside the kept range survives');
+
+  var expectedDist = 0, expectedMov = 0;
+  for (i = 1; i < expected.length; i++) {
+    if (expected[i][5]) continue;
+    expectedDist += (function (a, b) {
+      var R = 6371000, rad = Math.PI / 180;
+      var dLat = (b[1] - a[1]) * rad, dLon = (b[2] - a[2]) * rad;
+      var q = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(a[1] * rad) * Math.cos(b[1] * rad) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
+    })(expected[i - 1], expected[i]);
+    expectedMov += Math.min(Math.max(expected[i][0] - expected[i - 1][0], 0), 20);
+  }
+  assert.strictEqual(trimmed.dist, Math.round(expectedDist),
+                     'distance is rebuilt without bridging the pause');
+  assert.strictEqual(trimmed.mov, Math.round(expectedMov),
+                     'moving time is rebuilt without the paused interval');
+  assert(trimmed.splits.length >= 1 && trimmed.analysis,
+         'splits and post-workout analysis are regenerated');
+
+  var newIndex = JSON.parse(W.store['runlog.runs']);
+  assert.notStrictEqual(newIndex[0]._j.id, oldJournal,
+                        'trim commits a new immutable route journal');
+  assert(!Object.keys(W.store).some(function (k) {
+    return k.indexOf('runlog.j.' + oldJournal + '.') === 0;
+  }), 'superseded route chunks are removed only after commit');
+  var committed = W.store['runlog.runs'];
+  W.fire('webviewclosed', { response:JSON.stringify({
+    act:'trim', id:stableId, first:0, last:0
+  }) });
+  assert.strictEqual(W.store['runlog.runs'], committed,
+                     'invalid one-point trim cannot change storage');
+  assert(JSON.parse(W.store['runlog.log']).some(function (e) {
+    return /trimmed .* s \/ .* m/.test(e[1]);
+  }), 'successful trim is logged');
+  console.log('scenario 38 (phone-side activity trim and journal rewrite) OK');
+})();
+
+/* =======================================================================
+ * 39 — an active HELLO is a coherent manual-refresh snapshot. The watch can
+ * request it after a screen/wrist tap without adding a lifecycle command.
+ * ===================================================================== */
+(function scenario39() {
+  var W = makeWorld(), sid = 393939, t0 = 1752600000;
+  W.clockMs = t0 * 1000; W.boot(); W.fire('ready', {});
+  W.fire('appmessage', { payload:{MODE:0,AUTOP:0,SPLITP:0} });
+  W.fire('appmessage', { payload:{PROTO:3,SID:sid,SEQ:1,CMD:1,WSTATE:1,
+                                  STARTTS:t0,ACTIVE:0,MODE:0} });
+  var walk = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 1; i <= 6; i++) {
+    walk.step(2.8, 5, 24, 7);
+    W.fire('appmessage', { payload:{PROTO:3,SID:sid,SAMPLET:t0 + i * 5,
+                                    HR:142 + i,STEPS:i * 14} });
+  }
+
+  W.msgs.length = 0;
+  W.fire('appmessage', { payload:{HELLO:1,PROTO:3,SID:sid,SEQ:1,WSTATE:1,
+                                  ACTIVE:30,STARTTS:t0,HR:148,STEPS:84} });
+  var snap = lastWith(W, 'DIST');
+  assert(snap && snap.WSTATE === 1 && snap.SID === sid,
+         'refresh reply is the protected canonical session state');
+  ['PACE','EGLIVE','MOVLIVE','AVGHRLIVE','LAPN','LAPD','LAPT','LAPP',
+   'GPSOK','ACC'].forEach(function (key) {
+    assert(Object.prototype.hasOwnProperty.call(snap, key),
+           'refresh snapshot includes ' + key);
+  });
+  assert(snap.DIST > 0 && snap.LAPD === snap.DIST && snap.GPSOK === 1 && snap.ACC === 7,
+         'refresh snapshot values describe the current filtered workout');
+  console.log('scenario 39 (screen-tap coherent live-stat refresh) OK');
 })();
 
 console.log('\nALL PIPELINE TESTS PASSED');

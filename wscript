@@ -34,7 +34,18 @@ def build(ctx):
         ctx.env = ctx.all_envs[platform]
         ctx.set_group(ctx.env.PLATFORM_NAME)
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
-        ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
+        # The Emery firmware currently copies an installable Alloy archive into
+        # app RAM before XS starts. RunLog's full workout UI then needs both the
+        # archive and its expanded object graph at once, which exceeds physical
+        # PT2 memory even though QEMU maps the archive in place. Keep the watch
+        # runtime native and leave phone-side trajectory work in PebbleKit JS.
+        ctx.pbl_build(source=[
+            'src/c/main.c',
+            'src/c/format.c',
+            'src/c/hintbar.c',
+            'src/c/settings.c',
+            'src/c/summary.c',
+        ], target=app_elf, bin_type='app')
 
         if build_worker:
             worker_elf = '{}/pebble-worker.elf'.format(ctx.env.BUILD_DIR)

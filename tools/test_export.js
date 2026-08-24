@@ -32,6 +32,21 @@ assert(/id="cfgpass"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'password: n
 assert(/id="cfgurl"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'URL: no autocapitalize');
 assert(/id="cfgkey"[^>]*\n?[^>]*autocapitalize="none"/.test(html), 'API key: no autocapitalize');
 
+// Map and trim controls are one interaction region: mobile stacks them
+// directly, while wider screens place them side-by-side.
+var mapTrimAt = html.indexOf('<div class="maptrim" id="maptrim">');
+var mapAt = html.indexOf('<div id="map">', mapTrimAt);
+var trimAt = html.indexOf('<div class="card" id="trimwrap"', mapAt);
+var statsAt = html.indexOf('<div class="statgrid" id="dstats">', trimAt);
+assert(mapTrimAt >= 0 && mapAt > mapTrimAt && trimAt > mapAt && statsAt > trimAt,
+       'trim controls sit immediately with the map, before activity analysis');
+assert(html.indexOf('.maptrim.trimming{grid-template-columns:') >= 0 &&
+       html.indexOf('@media (min-width:720px)') >= 0,
+       'trim/map layout becomes side-by-side on wide screens');
+assert(/id="trimstart"[^>]*aria-describedby="trimsummary"/.test(html) &&
+       /id="trimend"[^>]*aria-describedby="trimsummary"/.test(html),
+       'trim range controls describe their live summary accessibly');
+
 /* ---------------- sample data ---------------- */
 function mkPts() {
   // L-shaped course in Perth: 16 pts east, then 8 pts north, pause at #10
@@ -306,6 +321,55 @@ function lastAction(dom) {
   assert.strictEqual(dom.ids.upbtn.textContent, 'Re-upload', 'button label for up=1');
   assert(dom.ids.hspeed.textContent.indexOf('SPEED') === 0, 'speed chart header');
 
+  // Point-snapped trimming previews locally, then closes once with a stable-ID
+  // action only after the user chooses a real, at-least-ten-second range.
+  assert.strictEqual(dom.ids.trimwrap.style.display, '', 'trim controls shown for a routed activity');
+  assert.strictEqual(dom.ids.maptrim.className, 'maptrim trimming',
+                     'map and trim controls enter the combined layout');
+  assert.strictEqual(dom.ids.trimstart.value, '0', 'trim starts at the activity boundary');
+  assert.strictEqual(dom.ids.trimend.value, String(RUN_A.pts.length - 1),
+                     'trim ends at the activity boundary');
+  assert.strictEqual(dom.ids.trimbtn.disabled, true, 'unchanged range cannot be applied');
+  var noTrimHref = dom.hrefs.length;
+  S.applyTrim();
+  assert.strictEqual(dom.hrefs.length, noTrimHref, 'full-range trim is a no-op');
+  dom.ids.trimstart.value = '2';
+  dom.ids.trimend.value = String(RUN_A.pts.length - 3);
+  S.trimUi('end');
+  assert.strictEqual(dom.ids.trimbtn.disabled, false, 'shorter valid range can be applied');
+  assert(dom.ids.trimsummary.textContent.indexOf('route points') >= 0 &&
+         dom.ids.trimsummary.textContent.indexOf(' km ') >= 0 &&
+         dom.ids.trimfrom.textContent.charAt(0) === '+' &&
+         dom.ids.trimto.textContent.charAt(0) === '-', 'trim preview shows both cuts');
+  assert.strictEqual(dom.ids.trimstart.attrs['aria-valuetext'], dom.ids.trimfrom.textContent,
+                     'start slider announces its time cut');
+  assert.strictEqual(dom.ids.trimend.attrs['aria-valuetext'], dom.ids.trimto.textContent,
+                     'end slider announces its time cut');
+  var trimSvg = S.MSVG;
+  assert(trimSvg && trimSvg.children.length >= 7, 'trim preview repaints route and labeled endpoints');
+  assert.strictEqual(trimSvg.attrs.role, 'img', 'route overlay has image semantics');
+  assert.strictEqual(trimSvg.children[1].attrs.stroke, '#ff5a1f',
+                     'kept map section remains solid orange');
+  assert.strictEqual(trimSvg.children[2].attrs.stroke, '#7d8a96',
+                     'discarded map sections become grey');
+  assert.strictEqual(trimSvg.children[2].attrs['stroke-dasharray'], '5 5',
+                     'discarded map sections are dashed');
+  assert(trimSvg.children[1].attrs.d.length < trimSvg.children[0].attrs.d.length,
+         'orange preview path is shorter than the complete route casing');
+  var markerLabels = trimSvg.children.filter(function (x) { return x.tag === 'text'; })
+    .map(function (x) { return x.textContent; });
+  assert.deepStrictEqual(markerLabels, ['START', 'END'],
+                         'map labels the exact proposed trim endpoints');
+  S.applyTrim();
+  assert.deepStrictEqual(lastAction(dom), {
+    act: 'trim', id: RUN_A.start, first: 2, last: RUN_A.pts.length - 3
+  }, 'trim action uses stable ID and inclusive point bounds');
+  S.resetTrim();
+  assert.strictEqual(dom.ids.trimstart.value, '0', 'trim reset restores activity start');
+  assert.strictEqual(dom.ids.trimend.value, String(RUN_A.pts.length - 1),
+                     'trim reset restores activity end');
+  assert.strictEqual(dom.ids.trimbtn.disabled, true, 'reset full range is not applyable');
+
   // Current Pebble mobile builds close the settings screen after
   // pebblejs://close, so expanding a row must happen entirely inside this
   // WebView. The packed route is decoded losslessly and does not navigate.
@@ -415,8 +479,9 @@ function lastAction(dom) {
   assert.strictEqual(String.fromCharCode(fitOut[8], fitOut[9], fitOut[10], fitOut[11]), '.FIT', 'page FIT signature');
 
   // download builds a .gpx blob without closing the page
+  var navBeforeDownload = dom.hrefs.length;
   S.dl();
-  assert.strictEqual(dom.hrefs.length, 0, 'download does not navigate');
+  assert.strictEqual(dom.hrefs.length, navBeforeDownload, 'download does not navigate');
   assert.strictEqual(dom.blobs.length, 1, 'blob created');
   assert(dom.blobs[0].indexOf('<gpx ') >= 0, 'blob is GPX');
   assert(/\.gpx$/.test(dom.anchors[0].download), 'download filename');
@@ -499,6 +564,13 @@ function lastAction(dom) {
   assert(empty.ids.list.innerHTML.indexOf('No activities saved yet') >= 0, 'empty state');
   assert(empty.ids.loglines.innerHTML.indexOf('Nothing logged yet') >= 0, 'empty log state');
   assert(empty.ids.subline.innerHTML.indexOf('0 saved activities') === 0, 'zero count');
+
+  var routeLess = JSON.parse(JSON.stringify(RUN_A));
+  routeLess.route = 0;
+  var noRoute = boot([routeLess], CFG, false, 0);
+  noRoute.sandbox.showDetail(0);
+  assert.strictEqual(noRoute.ids.trimwrap.style.display, 'none',
+                     'trim controls stay hidden without a GPS route');
 
   // deep link straight to the run that just finished
   var dl1 = boot([RUN_B, RUN_A], CFG, false, RUN_A.start);

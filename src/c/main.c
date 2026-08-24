@@ -18,9 +18,9 @@
 
 // ---------------- Tunables ----------------
 #define SAMPLE_PERIOD_S       5   // active health cadence for run/walk/ride
-#define HIKE_SAMPLE_PERIOD_S 15   // hikes retain totals, with fewer health/radio wakeups
+#define HIKE_SAMPLE_PERIOD_S 30   // align hike Health reads with its low-duty HR period
 #define SAMPLE_KEEPALIVE_S   10   // unchanged active sample refresh for run/walk/ride
-#define HIKE_KEEPALIVE_S     30   // hike freshness tracks its slower sample cadence
+#define HIKE_KEEPALIVE_S     60   // tolerate one missed hike sample before a keepalive
 #define PAUSE_SAMPLE_PERIOD_S 60  // paused HR display; step totals are sampled at both boundaries
 #define HR_RUN_PERIOD_S      10   // optical sensor period for run/walk/ride
 #define HR_HIKE_PERIOD_S     30   // firmware refreshes active BPM slowly; avoid redundant LED work
@@ -37,6 +37,7 @@
 #define TARGET_ALERT_GAP_S  120
 #define LINK_RETRY_MIN_MS  1400
 #define LINK_RETRY_MAX_MS 30000
+#define REFRESH_TAP_GAP_MS     2500  // debounce deliberate screen taps
 
 
 typedef enum {
@@ -162,6 +163,9 @@ static uint32_t s_pending_seq = 0;
 static uint8_t s_pending_cmd = 0;
 static char s_pending_name[64];
 static bool s_hello_pending = true;
+// A local watch edit must win over an older phone edit that was queued while
+// disconnected. CFGSET=2 marks the full watch snapshot until the phone echoes it.
+static bool s_local_settings_pending = false;
 static bool s_outbox_busy = false;
 static uint8_t s_outbox_kind = 0;   // 1 control, 2 hello/settings, 3 health, 4 journal flush
 static bool s_queued_had_journal = false;
@@ -180,6 +184,7 @@ static int s_lap_start_dist_m = 0;
 static time_t s_target_bad_since = 0;
 static time_t s_target_last_alert = 0;
 static bool s_target_complete_alerted = false;
+static uint32_t s_last_refresh_ms = 0;
 
 static char s_time_buf[16], s_dist_buf[12], s_pace_buf[12];
 static char s_hr_buf[12], s_hr_cap_buf[12], s_hr_zone_buf[4], s_steps_buf[16];
@@ -216,10 +221,15 @@ static void prv_update_caps(void);
 static void settings_load(void);
 void settings_save_and_sync(void);
 static void prv_up_click(ClickRecognizerRef rec, void *ctx);
+static void prv_select_click(ClickRecognizerRef rec, void *ctx);
+static void prv_down_click(ClickRecognizerRef rec, void *ctx);
+static void prv_back_click(ClickRecognizerRef rec, void *ctx);
 static void prv_tick(struct tm *tick_time, TimeUnits units);
 static void prv_apply_tick(void);
 static void prv_apply_hr_period(void);
 static void prv_sample_hr(void);
+static void prv_refresh_steps(void);
+static void prv_send_sample(bool force);
 static void prv_try_send(void);
 static void prv_session_persist(void);
 static void prv_send_hello(void);
@@ -631,12 +641,15 @@ static void prv_set_state_text(void) {
   switch (s_state) {
     case STATE_RUNNING: timer_col = GColorBlack;
                         if (!s_phone_connected) snprintf(status, sizeof(status), "PHONE OFFLINE");
+                        else if (!s_gps_ok) snprintf(status, sizeof(status), "GPS LOST");
                         else snprintf(status, sizeof(status), "%s %d/3", page_name, s_page + 1);
                         break;
     case STATE_PAUSED:  timer_col = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
                         status_col = PBL_IF_COLOR_ELSE(GColorRed, GColorBlack);
-                        snprintf(status, sizeof(status), "%s %d/3",
-                                 s_autopaused ? "AUTO-PAUSE" : "PAUSED", s_page + 1);
+                        if (!s_phone_connected) snprintf(status, sizeof(status), "PHONE OFFLINE");
+                        else if (s_autopaused && !s_gps_ok) snprintf(status, sizeof(status), "GPS LOST");
+                        else snprintf(status, sizeof(status), "%s %d/3",
+                                      s_autopaused ? "AUTO-PAUSE" : "PAUSED", s_page + 1);
                         break;
     case STATE_SAVING:  snprintf(status, sizeof(status), "SAVING"); break;
     case STATE_DONE:    snprintf(status, sizeof(status), "SAVED"); break;
@@ -1149,17 +1162,60 @@ static void prv_connection_changed(bool connected) {
  * a control message the phone reads as a different intent. Every write goes
  * through these so prv_try_send can refuse to transmit a truncated dict. */
 static void prv_dw_u8(DictionaryIterator *out, uint32_t key, uint8_t v) {
+  if (s_dict_full) return;
   if (dict_write_uint8(out, key, v) != DICT_OK) s_dict_full = true;
 }
 static void prv_dw_u32(DictionaryIterator *out, uint32_t key, uint32_t v) {
+  if (s_dict_full) return;
   if (dict_write_uint32(out, key, v) != DICT_OK) s_dict_full = true;
 }
 static void prv_dw_i32(DictionaryIterator *out, uint32_t key, int32_t v) {
+  if (s_dict_full) return;
   if (dict_write_int32(out, key, v) != DICT_OK) s_dict_full = true;
 }
 static void prv_dw_data(DictionaryIterator *out, uint32_t key,
                         const uint8_t *data, uint16_t len) {
+  if (s_dict_full) return;
   if (dict_write_data(out, key, data, len) != DICT_OK) s_dict_full = true;
+}
+
+/* app_message_outbox_begin() leaves PebbleOS in its OUT_WRITING phase. There
+ * is no public discard API: after any dictionary error, the documented way to
+ * leave that phase is to finish/send the valid prefix. Mark it as kind zero so
+ * no delivery bookkeeping is advanced. The public SDK has no close/discard
+ * primitive; if this documented send path itself fails, disable comms instead
+ * of burning battery in a retry loop that cannot leave OUT_WRITING. */
+static void prv_release_partial_outbox(void) {
+  s_outbox_kind = 0;
+  s_queued_had_journal = false;
+  s_outbox_busy = true;
+  AppMessageResult r = app_message_outbox_send();
+  if (r == APP_MSG_OK) return;
+  APP_LOG(APP_LOG_LEVEL_ERROR, "could not release partial outbox (%d)", (int)r);
+  s_outbox_busy = false;
+  s_msg_ok = false;
+  prv_cancel_send_timer();
+  prv_flash("PHONE LINK ERROR");
+}
+
+/* prv_write_session() has 23 fixed tuples carrying 56 value bytes; CFGSET adds
+ * one 1-byte tuple. Preflight the only variable-sized control (voice rename)
+ * before beginning an outbox, including the dictionary and tuple headers. */
+static uint32_t prv_session_wire_size(void) {
+  const uint32_t dictionary_header = 1;
+  const uint32_t tuple_header = 7;
+  const uint32_t fixed_tuples = 23;
+  const uint32_t fixed_values = 56;
+  return dictionary_header + fixed_tuples * tuple_header + fixed_values +
+         (s_local_settings_pending ? tuple_header + 1 : 0);
+}
+
+static uint32_t prv_control_wire_size(uint8_t cmd) {
+  const uint32_t tuple_header = 7;
+  uint32_t size = prv_session_wire_size() + tuple_header + 1;  // CMD
+  if (cmd == CMD_RENAME)
+    size += tuple_header + (uint32_t)strlen(s_pending_name) + 1;
+  return size;
 }
 
 static int prv_write_journal_batch(DictionaryIterator *out) {
@@ -1190,6 +1246,8 @@ static void prv_write_session(DictionaryIterator *out) {
   prv_dw_u8(out, MESSAGE_KEY_MHR,    (uint8_t)g_set.max_hr);
   prv_dw_u8(out, MESSAGE_KEY_RHR,    (uint8_t)g_set.rest_hr);
   prv_dw_u8(out, MESSAGE_KEY_HRZONE, (uint8_t)(g_set.show_hr_zone ? 1 : 0));
+  if (s_local_settings_pending)
+    prv_dw_u8(out, MESSAGE_KEY_CFGSET, 2);
   prv_dw_u8(out, MESSAGE_KEY_TGTYPE, (uint8_t)g_set.target_type);
   prv_dw_i32(out, MESSAGE_KEY_TGLO, g_set.target_lo);
   prv_dw_i32(out, MESSAGE_KEY_TGHI, g_set.target_hi);
@@ -1200,14 +1258,26 @@ static void prv_write_session(DictionaryIterator *out) {
 static void prv_try_send(void) {
   if (!s_msg_ok || !s_phone_connected || s_outbox_busy ||
       (!s_pending_cmd && !s_hello_pending)) return;
+  uint8_t cmd = s_pending_cmd;
+  bool flushing = cmd == CMD_STOP && s_journal_n > 0;
+  if (!flushing && cmd && prv_control_wire_size(cmd) > s_msg_out_size) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "outbox too small for cmd %d (%lu > %lu)",
+            (int)cmd, (unsigned long)prv_control_wire_size(cmd),
+            (unsigned long)s_msg_out_size);
+    if (cmd == CMD_RENAME) {
+      s_pending_cmd = 0; s_pending_seq = 0; s_pending_name[0] = 0;
+      prv_session_persist();
+      summary_action_result(CMD_RENAME, false);
+      prv_set_state_text();
+    }
+    return;
+  }
   DictionaryIterator *out;
   if (app_message_outbox_begin(&out) != APP_MSG_OK) {
     prv_schedule_link_retry();
     return;
   }
   s_dict_full = false;
-  uint8_t cmd = s_pending_cmd;
-  bool flushing = cmd == CMD_STOP && s_journal_n > 0;
   if (flushing) {
     // Drain durable sensor history before STOP. The phone ACKs only after its
     // journal write succeeds, so STOP can safely finalise a route-less workout.
@@ -1235,17 +1305,17 @@ static void prv_try_send(void) {
     s_outbox_kind = 2;
   }
   if (s_dict_full) {
-    // Only a voice name can realistically overflow the buffer. Drop that command
-    // and tell the user, rather than sitting on RENAMING forever or sending
-    // a partial dict the phone would misread.
-    APP_LOG(APP_LOG_LEVEL_ERROR, "outbox too small for cmd %d; dropping", (int)cmd);
-    s_outbox_kind = 0;
+    // The variable-sized rename was preflighted, so this is an unexpected
+    // dictionary failure. A rename still fails visibly; fixed-size lifecycle
+    // controls remain pending and retry after the partial outbox is released.
+    APP_LOG(APP_LOG_LEVEL_ERROR, "dictionary write failed for cmd %d", (int)cmd);
     if (cmd == CMD_RENAME) {
       s_pending_cmd = 0; s_pending_seq = 0; s_pending_name[0] = 0;
       prv_session_persist();
       summary_action_result(CMD_RENAME, false);
       prv_set_state_text();
     }
+    prv_release_partial_outbox();
     return;
   }
   s_outbox_busy = true;
@@ -1370,7 +1440,7 @@ static void prv_send_sample(bool force) {
                        sample_at - s_last_sample_sent_at >= prv_sample_keepalive_s();
   bool journal_due = s_journal_n > 0 &&
       (force || !s_journal_last_sent_at ||
-       (uint32_t)sample_at >= s_journal_last_sent_at + JOURNAL_NORMAL_S);
+       (uint32_t)sample_at >= s_journal_last_sent_at + (uint32_t)journal_period);
   if (!force && s_hr == s_last_sent_hr && s_steps == s_last_sent_steps &&
       s_hr_peak_raw == s_last_sent_hr_peak && !keepalive_due && !journal_due) return;
   DictionaryIterator *out;
@@ -1388,7 +1458,7 @@ static void prv_send_sample(bool force) {
   int journal_written = journal_due ? prv_write_journal_batch(out) : 0;
   if (s_dict_full) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "health sample exceeded outbox; dropping");
-    s_outbox_kind = 0;
+    prv_release_partial_outbox();
     return;
   }
   s_outbox_kind = 3;
@@ -1433,20 +1503,37 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   bool no_save = (dict_find(iter, MESSAGE_KEY_NOSAVE) != NULL);
   bool stats_changed = false;
   bool track_changed = false;
-  bool config_packet = dict_find(iter, MESSAGE_KEY_CFGSET) != NULL;
+  Tuple *t_cfgset = dict_find(iter, MESSAGE_KEY_CFGSET);
+  bool config_packet = t_cfgset != NULL;
+  int config_kind = t_cfgset ? (int)t_cfgset->value->int32 : 0;
   int acked_cmd = 0;
   bool acked_ok = true;
   Tuple *t_sid = dict_find(iter, MESSAGE_KEY_SID);
   Tuple *t_ack = dict_find(iter, MESSAGE_KEY_ACK);
   Tuple *t_state = dict_find(iter, MESSAGE_KEY_WSTATE);
   Tuple *t_wsack = dict_find(iter, MESSAGE_KEY_WSACK);
+  uint32_t incoming_sid = t_sid ? (uint32_t)t_sid->value->uint32 : 0;
+  bool exact_pending_ack = t_ack && s_pending_cmd &&
+      (uint32_t)t_ack->value->uint32 == s_pending_seq;
+  bool session_mutation = t_state || saved || no_save || t_ack || t_wsack;
+
+  // Phone messages are asynchronous and protected packets can survive an app
+  // restart. A state, save/no-save or journal ACK for another (or unidentified)
+  // session must never roll back the workout currently owned by this process.
+  // An exact ACK for our globally persisted command sequence is the sole
+  // exception: DISCARD and a rejected START legitimately answer with SID zero.
+  if (s_sid && session_mutation && (!t_sid || incoming_sid != s_sid) &&
+      !exact_pending_ack) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "ignoring stale session packet for %lu (want %lu)",
+            (unsigned long)incoming_sid, (unsigned long)s_sid);
+    return;
+  }
 
   // Protected AppMessages can outlive the watch process that requested them.
   // Never let an old SAVED retry resurrect a completed workout on launch or
   // replace a different workout the user has already started.
   if (saved) {
-    uint32_t incoming_sid = t_sid ? (uint32_t)t_sid->value->uint32 : 0;
-    if (!s_accept_saved || (s_sid && incoming_sid && incoming_sid != s_sid)) {
+    if (!s_accept_saved) {
       APP_LOG(APP_LOG_LEVEL_INFO, "ignoring stale SAVED for %lu",
               (unsigned long)incoming_sid);
       return;
@@ -1457,7 +1544,6 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   // workout. Only authoritative state/ACK/save packets may change the current
   // session; silently ignore other session-scoped packets that do not match.
   if (t_sid) {
-    uint32_t incoming_sid = (uint32_t)t_sid->value->uint32;
     bool authoritative = t_state || saved || no_save;
     if (!authoritative && incoming_sid != s_sid) return;
     if (authoritative) s_sid = incoming_sid;
@@ -1542,42 +1628,79 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
     prv_session_persist();
   }
 
-  // 2.1 phone-first settings. Activity stays local to the watch, but the
-  // less time-critical controls now arrive together from the mobile page.
-  // Never change them underneath an active workout; a pending phone update is
-  // retried on the next READY handshake instead.
-  if (config_packet && (s_state == STATE_READY || s_state == STATE_DONE)) {
-    bool changed = false;
-    if ((t = dict_find(iter, MESSAGE_KEY_UNITS))) {
-      bool v = t->value->int32 != 0;
-      if (v != g_set.miles) { g_set.miles = v; changed = true; }
+  // CFGSET=2 is the phone's explicit acknowledgement of a watch-local settings
+  // edit. Clear the durable marker only after the complete echoed snapshot
+  // matches; a lost response therefore leaves the watch retryable after restart.
+  if (config_kind == 2 && s_local_settings_pending) {
+    Tuple *tu = dict_find(iter, MESSAGE_KEY_UNITS);
+    Tuple *taut = dict_find(iter, MESSAGE_KEY_AUTOP);
+    Tuple *tsp = dict_find(iter, MESSAGE_KEY_SPLITP);
+    Tuple *tmh = dict_find(iter, MESSAGE_KEY_MHR);
+    Tuple *trh = dict_find(iter, MESSAGE_KEY_RHR);
+    Tuple *thz = dict_find(iter, MESSAGE_KEY_HRZONE);
+    bool matches = tu && taut && tsp && tmh && trh && thz &&
+      (tu->value->int32 == 0 || tu->value->int32 == 1) &&
+      (taut->value->int32 == 0 || taut->value->int32 == 1) &&
+      (tsp->value->int32 == 0 || tsp->value->int32 == 1) &&
+      (thz->value->int32 == 0 || thz->value->int32 == 1) &&
+      ((tu->value->int32 != 0) == g_set.miles) &&
+      ((taut->value->int32 != 0) == g_set.autopause) &&
+      ((tsp->value->int32 != 0) == g_set.splits) &&
+      ((int)tmh->value->int32 == g_set.max_hr) &&
+      ((int)trh->value->int32 == g_set.rest_hr) &&
+      ((thz->value->int32 != 0) == g_set.show_hr_zone);
+    if (matches) {
+      s_local_settings_pending = false;
+      prv_persist_delete_if_present(PKEY_LOCAL_SET_PENDING);
+    } else {
+      // The ACK may belong to an earlier local toggle. Keep the marker and
+      // immediately advertise the newest complete snapshot again.
+      prv_send_hello();
     }
-    if ((t = dict_find(iter, MESSAGE_KEY_AUTOP))) {
-      bool v = t->value->int32 != 0;
-      if (v != g_set.autopause) { g_set.autopause = v; changed = true; }
-    }
-    if ((t = dict_find(iter, MESSAGE_KEY_SPLITP))) {
-      bool v = t->value->int32 != 0;
-      if (v != g_set.splits) { g_set.splits = v; changed = true; }
-    }
-    if ((t = dict_find(iter, MESSAGE_KEY_MHR))) {
-      int v = (int)t->value->int32;
-      if (v >= 80 && v <= 220 && v != g_set.max_hr) {
-        g_set.max_hr = v; changed = true;
+  }
+
+  // CFGSET=1 is a phone-originated settings edit. Never change settings under
+  // an active workout; the phone retains and retries its pending snapshot. A
+  // local edit has no comparable generation number, so it stays authoritative
+  // until the phone acknowledges it instead of guessing from arrival order.
+  if (config_kind == 1 && (s_state == STATE_READY || s_state == STATE_DONE)) {
+    if (s_local_settings_pending) {
+      // This may be an older disconnected phone retry. Re-send the watch edit;
+      // its matching CFGSET=2 echo is the only safe conflict boundary.
+      prv_send_hello();
+    } else {
+      bool changed = false;
+      if ((t = dict_find(iter, MESSAGE_KEY_UNITS))) {
+        bool v = t->value->int32 != 0;
+        if (v != g_set.miles) { g_set.miles = v; changed = true; }
       }
-    }
-    if ((t = dict_find(iter, MESSAGE_KEY_RHR))) {
-      int v = (int)t->value->int32;
-      if (v >= 0 && v <= 120 && v != g_set.rest_hr) {
-        g_set.rest_hr = v; changed = true;
+      if ((t = dict_find(iter, MESSAGE_KEY_AUTOP))) {
+        bool v = t->value->int32 != 0;
+        if (v != g_set.autopause) { g_set.autopause = v; changed = true; }
       }
+      if ((t = dict_find(iter, MESSAGE_KEY_SPLITP))) {
+        bool v = t->value->int32 != 0;
+        if (v != g_set.splits) { g_set.splits = v; changed = true; }
+      }
+      if ((t = dict_find(iter, MESSAGE_KEY_MHR))) {
+        int v = (int)t->value->int32;
+        if (v >= 80 && v <= 220 && v != g_set.max_hr) {
+          g_set.max_hr = v; changed = true;
+        }
+      }
+      if ((t = dict_find(iter, MESSAGE_KEY_RHR))) {
+        int v = (int)t->value->int32;
+        if (v >= 0 && v <= 120 && v != g_set.rest_hr) {
+          g_set.rest_hr = v; changed = true;
+        }
+      }
+      if ((t = dict_find(iter, MESSAGE_KEY_HRZONE))) {
+        bool v = t->value->int32 != 0;
+        if (v != g_set.show_hr_zone) { g_set.show_hr_zone = v; changed = true; }
+      }
+      if (changed) settings_save_and_sync();
+      else         prv_send_hello();  // acknowledge an already-applied retry
     }
-    if ((t = dict_find(iter, MESSAGE_KEY_HRZONE))) {
-      bool v = t->value->int32 != 0;
-      if (v != g_set.show_hr_zone) { g_set.show_hr_zone = v; changed = true; }
-    }
-    if (changed) settings_save_and_sync();
-    else         prv_send_hello();  // acknowledge an already-applied retry
   }
 
   if (no_save) {
@@ -1649,12 +1772,14 @@ static void prv_inbox(DictionaryIterator *iter, void *context) {
   }
   if ((t = dict_find(iter, MESSAGE_KEY_GPSOK))) {
     int old_visual = prv_gps_visual_state(s_gps_ok, s_acc_m);
+    bool old_gps_ok = s_gps_ok;
     bool next_gps_ok = (t->value->int32 != 0);
     s_gps_ok = next_gps_ok;
     if (!s_gps_ok) s_acc_m = -1;
     if (old_visual != prv_gps_visual_state(s_gps_ok, s_acc_m) && s_chrome_layer)
       layer_mark_dirty(s_chrome_layer);
     prv_update_acc();
+    if (old_gps_ok != s_gps_ok) prv_set_state_text();
   }
   if ((t = dict_find(iter, MESSAGE_KEY_ACC))) {
     int old_visual = prv_gps_visual_state(s_gps_ok, s_acc_m);
@@ -1986,6 +2111,59 @@ static void prv_click_config(void *ctx) {
   window_long_click_subscribe(BUTTON_ID_DOWN, 700, prv_down_long, NULL);
 }
 
+// A manual refresh is deliberately a best-effort HELLO/session snapshot, not a
+// durable lifecycle command. It can never get in front of PAUSE/STOP in the
+// command journal. The fresh local Health values ride in the snapshot, then the
+// phone replies with its authoritative distance, pace, lap and GPS values.
+static void prv_manual_refresh(void) {
+  time_t sec;
+  uint16_t ms;
+  time_ms(&sec, &ms);
+  uint32_t at = (uint32_t)sec * 1000u + ms;
+  if (s_last_refresh_ms && at - s_last_refresh_ms < REFRESH_TAP_GAP_MS) return;
+  s_last_refresh_ms = at;
+
+  if (s_state == STATE_RUNNING || s_state == STATE_PAUSED) {
+    prv_sample_hr();
+    prv_refresh_steps();
+    prv_render_page();
+    // If this occupies the outbox, prv_send_hello() remains pending and is
+    // automatically sent by the outbox callback. Controls still take priority.
+    prv_send_sample(true);
+  }
+  prv_send_hello();
+  prv_flash(s_phone_connected ? "REFRESHING" : "PHONE OFFLINE");
+}
+
+static void prv_touch_tap(const Recognizer *recognizer, RecognizerEvent event) {
+  (void)recognizer;
+  if (event == RecognizerEvent_Completed) prv_manual_refresh();
+}
+
+static void prv_touch_swipe(const Recognizer *recognizer, RecognizerEvent event) {
+  if (event != RecognizerEvent_Completed) return;
+  switch (swipe_recognizer_get_direction(recognizer)) {
+    // Match PebbleOS's touch bridge: content follows the finger vertically,
+    // while left/right retain SELECT/BACK semantics.
+    case SwipeDirection_Up:    prv_down_click(NULL, NULL); break;
+    case SwipeDirection_Down:  prv_up_click(NULL, NULL); break;
+    case SwipeDirection_Left:  prv_select_click(NULL, NULL); break;
+    case SwipeDirection_Right: prv_back_click(NULL, NULL); break;
+    default: break;
+  }
+}
+
+static void prv_attach_touch_recognizers(Window *window) {
+  Recognizer *swipe = swipe_recognizer_create(
+      prv_touch_swipe, NULL,
+      SwipeDirection_Up | SwipeDirection_Down |
+      SwipeDirection_Left | SwipeDirection_Right);
+  Recognizer *tap = tap_recognizer_create(prv_touch_tap, NULL);
+  if (tap && swipe) recognizer_set_fail_after(tap, swipe);
+  if (swipe) window_attach_recognizer(window, swipe);
+  if (tap) window_attach_recognizer(window, tap);
+}
+
 // ---------------- Ticks ----------------
 static void prv_pause_sample_cb(void *data) {
   (void)data;
@@ -2264,7 +2442,13 @@ static void prv_init(void) {
   settings_load();
   prv_delete_removed_state();
   prv_session_load();
+  // Keep native touch navigation globally for settings and debrief windows.
+  // The workout window takes ownership so a tap can refresh without also
+  // synthesising SELECT and accidentally pausing the activity.
+  app_touch_navigation_enable(true);
   s_window = window_create();
+  window_set_touch_bridge_disabled(s_window, true);
+  prv_attach_touch_recognizers(s_window);
   window_set_click_config_provider(s_window, prv_click_config);
   window_set_window_handlers(s_window, (WindowHandlers) {
     .load = prv_window_load,
@@ -2291,6 +2475,7 @@ static void prv_init(void) {
 }
 
 static void prv_deinit(void) {
+  app_touch_navigation_enable(false);
   if (s_state == STATE_RUNNING) {
     s_elapsed_s = prv_elapsed_now();
     s_active_base_s = s_elapsed_s;
@@ -2342,6 +2527,8 @@ static void settings_load(void) {
   if (persist_exists(PKEY_RESTHR))  g_set.rest_hr   = persist_read_int(PKEY_RESTHR);
   if (persist_exists(PKEY_SHOW_HR_ZONE))
     g_set.show_hr_zone = persist_read_bool(PKEY_SHOW_HR_ZONE);
+  if (persist_exists(PKEY_LOCAL_SET_PENDING))
+    s_local_settings_pending = persist_read_bool(PKEY_LOCAL_SET_PENDING);
   if (persist_exists(PKEY_TARGET_TYPE))  g_set.target_type  = persist_read_int(PKEY_TARGET_TYPE);
   if (persist_exists(PKEY_TARGET_LO))    g_set.target_lo    = persist_read_int(PKEY_TARGET_LO);
   if (persist_exists(PKEY_TARGET_HI))    g_set.target_hi    = persist_read_int(PKEY_TARGET_HI);
@@ -2391,6 +2578,14 @@ void settings_save_and_sync(void) {
   prv_update_steps();  // switching to/from Ride changes whether wrist steps are shown
   prv_update_acc();
   prv_render_page();
+}
+
+void settings_save_local_and_sync(void) {
+  s_local_settings_pending = true;
+  if (!persist_exists(PKEY_LOCAL_SET_PENDING) ||
+      !persist_read_bool(PKEY_LOCAL_SET_PENDING))
+    persist_write_bool(PKEY_LOCAL_SET_PENDING, true);
+  settings_save_and_sync();
 }
 
 // UP button: open the settings menu if not actively recording.  If

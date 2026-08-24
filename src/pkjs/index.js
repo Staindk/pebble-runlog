@@ -53,29 +53,45 @@ var PAGE = require('./page').TEMPLATE;
 /* ------------------ Tunables ------------------ */
 var C = {
   ACT_COUNT: 4,
-  MAX_ACC_M: 50,        // ignore fixes with worse horizontal accuracy
-  MIN_GAP_S: 3,         // min seconds between recorded points
-  MIN_MOVE_M: 2,        // ignore jitter below this when nearly stationary
+  // Per [run, walk, ride, hike]. Hike deliberately stores a sparser route and
+  // rejects openly weak fixes: canopy/gorge multipath otherwise accumulates as
+  // a back-and-forth track while stopped. GPS acquisition itself stays live so
+  // auto-pause can still notice genuine movement promptly.
+  MAX_ACC_M: [50, 50, 50, 35],
+  MIN_GAP_S: [3, 3, 3, 10],
+  MIN_MOVE_M: [2, 2, 2, 4],       // base stationary dead-band
+  MIN_MOVE_ACC_FRAC: [0, 0, 0, 0.30], // Hike also scales it with reported uncertainty
+  MIN_MOVE_HOLD_S: [15, 15, 15, 60],  // retain a sparse stationary heartbeat
   PACE_WINDOW_S: 60,    // rolling pace window
   KEEP_RUNS: 12,        // newest finished runs kept, subject to the storage cap
   MAX_STORE_CHARS: 2200000,
   POWER: {
     normal: { hrStale: 15000, cadStale: 15000, cadWindow: 15000, cadSample: 5000,
               accDelta: 2, accGap: 7000, statGap: 5 },
-    hike:   { hrStale: 45000, cadStale: 45000, cadWindow: 45000, cadSample: 15000,
-              accDelta: 5, accGap: 15000, statGap: 15 }
+    hike:   { hrStale: 75000, cadStale: 75000, cadWindow: 90000, cadSample: 30000,
+              accDelta: 10, accGap: 30000, statGap: 30 }
   },
-  AP_SLOW_N: 3,         // consecutive slow fixes before auto-pause
-  AP_FAST_N: 2,         // consecutive fast fixes before auto-resume
+  // Require sustained evidence, not a brief speed wobble. Ride also needs one
+  // extra moving fix before resume so a single GPS/coasting burst cannot restart it.
+  AP_SLOW_N: [4, 4, 4, 4],
+  AP_FAST_N: [2, 2, 3, 3],
+  // Hike-only multipath guard: at uncertain accuracy, a sharp reversal whose
+  // two legs both fit inside the error radius is stop/noise evidence, not a
+  // burst of real speed. It also cannot count toward auto-resume.
+  AP_REVERSE_ACC_M: 15,
+  AP_REVERSE_COS: -0.35,
   // auto-pause speed thresholds (m/s) per [run, walk, ride, hike]. Hike's
   // lower threshold avoids false pauses on steep, genuinely slow climbs.
-  AP_SLOW: [0.7, 0.45, 1.0, 0.30],
+  AP_SLOW: [0.65, 0.45, 0.90, 0.30],
   AP_FAST: [1.4, 0.9, 2.2, 0.65],
   SPLIT_MULT: [1, 1, 5, 1],       // ride splits every 5 km / 5 mi
   ACT_NAME: ['Run', 'Walk', 'Ride', 'Hike'],
   NAME_TPL_DEFAULT: '%Y-%m-%d_%H%M_{activity}',   // includes time so same-day runs never share a filename
-  MAX_SPEED: [12, 6, 30, 6],      // m/s outlier gate per activity
-  KF_ACCEL: [1.0, 0.7, 1.6, 0.7],// plausible acceleration noise: run, walk, ride, hike
+  MAX_SPEED: [12, 6, 30, 4],      // m/s outlier gate per activity
+  KF_ACCEL: [1.0, 0.7, 1.6, 0.4],// plausible acceleration noise: run, walk, ride, hike
+  // Core Devices' current PKJS bridge forwards this non-standard option to
+  // Android's requested update interval (minimum displacement remains 0 m).
+  GPS_FREQUENCY_MS: [1000, 1000, 1000, 2000],
   MOV_CAP_S: 20,                  // cap one inter-fix interval when accruing moving time (guard missed-pause gaps without over-trimming sparse fixes)
   IP_RESUME_MS: 1200000,          // on restart, resume an in-progress run if its checkpoint is younger than this; else recover+save
   GPS_IDLE_MS: 300000,            // release a warmed-up GPS receiver if no run starts within this long
@@ -91,13 +107,13 @@ var C = {
   IP_CHUNK_PTS: 60,
   RUN_CHUNK_PTS: 96,
   WATCH_CHUNK_SAMPLES: 64,
-  GPS_STALE_MS: 12000,
+  GPS_STALE_MS: 10000,
   PAUSE_GPS_GRACE_MS: 60000             // short manual pauses stay warm; long breaks release phone GPS
 };
 
-/* Phone-managed workout settings, mirrored durably to the watch. Activity mode
- * remains watch-local for instant pre-workout selection. `pending` survives a
- * disconnected settings edit until a matching watch snapshot confirms it. */
+/* Workout settings mirrored durably between phone and watch. Activity mode
+ * remains watch-local for instant pre-workout selection. `pending` represents
+ * a disconnected phone edit; CFGSET=2 gives a newer local watch edit priority. */
 var WSET = { mi: false, ap: true, splits: true, mode: 0, maxHr: 190,
              restHr: 0, zone: true, pending: false }; // restHr 0=off
 
@@ -107,19 +123,20 @@ var ST = {
   recording: false, paused: false, autopaused: false,
   activeS: 0, activeAt: 0,
   pts: [], dist: 0, movS: 0, last: null,
-  prevFix: null, lastFixAt: 0, slowN: 0, fastN: 0,
+  prevFix: null, apVec: null, lastFixAt: 0, slowN: 0, fastN: 0,
   eleSm: null, eleBase: null, egain: 0,
   hr: 0, hrAt: 0, cad: 0, cadAt: 0, lastSteps: null, stepHist: [], steps: 0,
   hrArea: 0, hrSecs: 0, hrPeak: 0, hrAgg: 0, hrAggAt: 0,
   stepAdj: 0, stepPrevRaw: null, lastRaw: null,
   startAt: 0, splitN: 0, segFlag: 0,
-  watchId: null, geoWatchdog: null, sending: false, queue: [], lastStatT: 0,
+  watchId: null, geoFrequency: 0, geoWatchdog: null,
+  sending: false, queue: [], lastStatT: 0,
   lastOk: -1, lastAccSent: -1, lastAccAt: 0,
   uploading: false, ipTimer: null, ipPersistedN: 0, ipWarned: false,
   pendingRecovery: null, storeBlocked: false,
   events: [], journalSeq: 0, journalGc: false,
   watchSamples: [], watchAck: 0, watchAckSid: 0, watchAckTimer: null,
-  preWatch: null, watchDq: 0, laps: []
+  preWatch: null, watchDq: 0, laps: [], watchSetAck: false
 };
 
 function now() { return Date.now(); }
@@ -176,6 +193,32 @@ function phoneState() {
 function wireSid(v) {
   return (typeof v === 'number' && isFinite(v) && v >= 0 && v <= 0xFFFFFFFF) ? v : 0;
 }
+
+// One coherent live snapshot is shared by periodic GPS telemetry and by the
+// protected state reply to a watch HELLO. The latter powers screen-tap refresh:
+// reconnecting or explicitly refreshing cannot leave one tile a cadence behind
+// another, and it does not require another protocol command or radio packet.
+function appendLiveStats(d, includeGps) {
+  if (!ST.recording) return d;
+  d.DIST = Math.round(ST.dist);
+  d.PACE = curPace();
+  d.EGLIVE = Math.round(ST.egain || 0);
+  d.MOVLIVE = Math.round(ST.movS || 0);
+  d.AVGHRLIVE = ST.hrSecs > 0 ? Math.round(ST.hrArea / ST.hrSecs) : 0;
+  var lb = ST.laps.length ? ST.laps[ST.laps.length - 1] : { active: 0, dist: 0 };
+  var la = Math.max(0, activeNow() - lb.active);
+  var ld = Math.max(0, ST.dist - lb.dist);
+  d.LAPN = ST.laps.length + 1;
+  d.LAPD = Math.round(ld);
+  d.LAPT = Math.round(la);
+  d.LAPP = (ld >= 10 && la > 0) ? Math.round(la / (ld / 1000)) : 0;
+  if (includeGps && ST.lastOk >= 0) {
+    d.GPSOK = ST.lastOk;
+    if (ST.lastOk && ST.lastAccSent >= 0) d.ACC = ST.lastAccSent;
+  }
+  return d;
+}
+
 function sendState(ack, result) {
   var target = loadCfg().target;
   var d = {
@@ -190,8 +233,9 @@ function sendState(ack, result) {
     TGHI: target.hi,
     TGVAL: target.value
   };
-  if (WSET.pending) {
-    d.CFGSET = 1;
+  var cfgKind = ST.watchSetAck ? 2 : (WSET.pending ? 1 : 0);
+  if (cfgKind) {
+    d.CFGSET = cfgKind;
     d.UNITS = WSET.mi ? 1 : 0;
     d.AUTOP = WSET.ap ? 1 : 0;
     d.SPLITP = WSET.splits ? 1 : 0;
@@ -199,8 +243,10 @@ function sendState(ack, result) {
     d.RHR = WSET.restHr;
     d.HRZONE = WSET.zone ? 1 : 0;
   }
+  if (ST.watchSetAck) ST.watchSetAck = false;
   if (ack !== undefined && ack !== null) d.ACK = ack;
   if (result !== undefined && result !== null) d.RESULT = result ? 1 : 0;
+  appendLiveStats(d, true);
   send(d, true);
 }
 
@@ -479,11 +525,20 @@ function newTrackFilter() {
 }
 
 function startGeo() {
-  if (ST.watchId !== null && ST.watchId !== undefined) return;   // already acquiring
   if (!navigator.geolocation) { sendStatus(0, null, false); return; }
+  var frequency = activityValue(C.GPS_FREQUENCY_MS);
+  if (ST.watchId !== null && ST.watchId !== undefined) {
+    if (ST.geoFrequency === frequency) return;       // already acquiring at this profile
+    navigator.geolocation.clearWatch(ST.watchId);    // activity changed while GPS was warm
+    ST.watchId = null;
+    if (ST.geoWatchdog !== null) clearTimeout(ST.geoWatchdog);
+    ST.geoWatchdog = null;
+  }
   ST.watchId = navigator.geolocation.watchPosition(onFix, function () {
     sendStatus(0, null, false);
-  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+  }, { enableHighAccuracy: true, frequency: frequency });
+  ST.geoFrequency = frequency;
+  ST.lastFixAt = now();
   armGeoWatchdog(C.GPS_STALE_MS);
 }
 
@@ -517,6 +572,7 @@ function stopGeo() {
     navigator.geolocation.clearWatch(ST.watchId);
   }
   ST.watchId = null;
+  ST.geoFrequency = 0;
   if (ST.geoWatchdog !== null) clearTimeout(ST.geoWatchdog);
   ST.geoWatchdog = null;
 }
@@ -578,13 +634,23 @@ function onFix(pos) {
   if (ST.geoWatchdog === null && ST.watchId !== null && ST.watchId !== undefined)
     armGeoWatchdog(C.GPS_STALE_MS);
   var c = pos && pos.coords;
-  if (!c) { sendStatus(0, null, false); return; }
+  if (!c) {
+    ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
+    sendStatus(0, null, false);
+    return;
+  }
+  var maxAcc = activityValue(C.MAX_ACC_M);
   var good = (c.accuracy !== null && c.accuracy !== undefined && isFinite(c.accuracy) &&
-              c.accuracy >= 0 && c.accuracy <= C.MAX_ACC_M &&
+              c.accuracy >= 0 && c.accuracy <= maxAcc &&
               isFinite(c.latitude) && c.latitude >= -90 && c.latitude <= 90 &&
               isFinite(c.longitude) && c.longitude >= -180 && c.longitude <= 180);
-  var telemetry = statusDelta(good ? 1 : 0, c.accuracy, false);
-  if (!good) { sendIfAny(telemetry); return; }
+  if (!good) {
+    // Auto-pause evidence must be consecutive trustworthy fixes. Do not bridge
+    // an accuracy outage with counters collected on either side of it.
+    ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
+    sendStatus(0, null, false);
+    return;
+  }
 
   if (!ST.fixLogged) {
     ST.fixLogged = true;
@@ -594,18 +660,37 @@ function onFix(pos) {
   // READY warm-up and manual pauses need only the fix indicator. Starting or
   // resuming creates a fresh filter, so running every idle fix through the
   // Kalman/elevation path was pure CPU work.
-  if (!ST.recording || ST.paused) { sendIfAny(telemetry); return; }
+  if (!ST.recording || ST.paused) {
+    sendIfAny(statusDelta(1, c.accuracy, false));
+    return;
+  }
 
   var tp = fixTime(pos);                 // fractional seconds — ms precision for the filter & auto-pause
   // A duplicate or reordered timestamp cannot carry a defensible displacement.
   // Skipping it is safer than coercing dt to a tiny positive value, which used
   // to turn an ordinary coordinate delta into a kilometre-per-second velocity.
-  if (ST.lastTp > 0 && tp <= ST.lastTp) { sendIfAny(telemetry); return; }
+  if (ST.lastTp > 0 && tp <= ST.lastTp) {
+    sendIfAny(statusDelta(1, c.accuracy, false));
+    return;
+  }
   var t = Math.round(tp);
   if (t < ST.lastT) t = ST.lastT;
 
   var rawFix = { t: tp, lat: Math.round(c.latitude * 1e6) / 1e6,
-                 lon: Math.round(c.longitude * 1e6) / 1e6 };
+                 lon: Math.round(c.longitude * 1e6) / 1e6,
+                 acc: c.accuracy,
+                 speed: (typeof c.speed === 'number' && isFinite(c.speed) &&
+                         c.speed >= 0 && c.speed <= activityValue(C.MAX_SPEED, ST.act))
+                          ? c.speed : null };
+
+  // A location return after the stale boundary is a new observation segment.
+  // Never draw, time or measure the unseen interval as one straight route edge.
+  if (ST.lastTp > 0 && (tp - ST.lastTp) * 1000 >= C.GPS_STALE_MS) {
+    ST.last = null; ST.lastRaw = null; ST.prevFix = null; ST.apVec = null;
+    ST.slowN = 0; ST.fastN = 0;
+    if (ST.pts.length) ST.segFlag = 1;
+    ST.kf = newTrackFilter();
+  }
 
   // Outlier gate on RAW coordinates, BEFORE the filter, auto-pause or prevFix see
   // the fix. Only closely-spaced fixes are gated (a real GPS stream); a large time
@@ -615,27 +700,47 @@ function onFix(pos) {
     var gdt = tp - ST.lastRaw.t;
     if (gdt > 0 && gdt < 30 &&
         haversine(ST.lastRaw, rawFix) / gdt > activityValue(C.MAX_SPEED, ST.act)) {
-      sendIfAny(telemetry);
+      ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
+      sendIfAny(statusDelta(0, null, false));
       return;
     }
   }
-  // Commit the monotonic clocks only after the whole fix survives validation.
+  // While moving, reject a measurement atomically before it can affect route
+  // clocks, auto-pause evidence or the next raw-coordinate gate. Auto-paused
+  // fixes deliberately skip trajectory work; a successful resume anchors a
+  // fresh segment below.
+  var sm = null;
+  if (!ST.autopaused) {
+    if (!ST.kf) ST.kf = newTrackFilter();
+    sm = ST.kf.update(c.latitude, c.longitude, c.accuracy, tp);
+    if (sm.accepted === false) {
+      ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
+      sendIfAny(statusDelta(0, null, false));
+      return;
+    }
+  }
+
+  var telemetry = statusDelta(1, c.accuracy, false);
+  // Commit route clocks only after validation and the innovation gate.
   ST.lastTp = tp;
   ST.lastT = t;
 
   // Auto-pause keys off RAW GPS speed: the Kalman filter adds velocity inertia
   // that lags a sudden stop, which would make pause/resume sluggish. Distance,
   // track and splits use the smoothed fix; only stop/resume detection sees raw.
-  // Run this before the Kalman update so an auto-paused stretch does no filter
-  // work until movement has actually resumed.
+  // Auto-paused fixes still do only the raw work needed for auto-resume.
   autoPauseCheck(rawFix);
   var accumulating = ST.recording && !ST.paused && !ST.autopaused;
   ST.prevFix = rawFix;
   if (accumulating) ST.lastRaw = rawFix;   // reference the next outlier check compares against
   if (!accumulating) { sendIfAny(telemetry); return; }
 
-  if (!ST.kf) ST.kf = newTrackFilter();
-  var sm = ST.kf.update(c.latitude, c.longitude, c.accuracy, tp);   // Kalman-smoothed (real dt: no zero-delta velocity spikes)
+  // A fix that triggered auto-resume was intentionally not fed through the
+  // stale pre-pause filter. autoPauseCheck() reset it, so anchor the new segment.
+  if (!sm) {
+    if (!ST.kf) ST.kf = newTrackFilter();
+    sm = ST.kf.update(c.latitude, c.longitude, c.accuracy, tp);
+  }
   var fix = {
     t: t,
     lat: sm.lat,
@@ -648,8 +753,17 @@ function onFix(pos) {
   if (ST.last) {
     var dt = fix.t - ST.last.t;
     var dm = haversine(ST.last, fix);
-    if (dt < C.MIN_GAP_S && dm < 15) { sendIfAny(telemetry); return; }   // throttle dense fixes
-    if (dm < C.MIN_MOVE_M && dt < 15) { sendIfAny(telemetry); return; }  // jitter while still
+    var minMove = activityValue(C.MIN_MOVE_M, ST.act);
+    var accFloor = activityValue(C.MIN_MOVE_ACC_FRAC, ST.act);
+    if (accFloor > 0) minMove = Math.max(minMove, Math.min(10, c.accuracy * accFloor));
+    if (dt < activityValue(C.MIN_GAP_S, ST.act) && dm < 15) {
+      sendIfAny(telemetry);
+      return;
+    }   // throttle dense fixes; Hike keeps a deliberately sparser route
+    if (dm < minMove && dt < activityValue(C.MIN_MOVE_HOLD_S, ST.act)) {
+      sendIfAny(telemetry);
+      return;
+    }   // accuracy-aware stationary jitter floor; never suppress a heartbeat forever
     ST.dist += dm;
     ST.movS += Math.min(dt, C.MOV_CAP_S);
   }
@@ -676,18 +790,7 @@ function onFix(pos) {
 
   if (t - ST.lastStatT >= powerProfile(ST.act).statGap) {
     ST.lastStatT = t;
-    telemetry.DIST = Math.round(ST.dist);
-    telemetry.PACE = curPace();
-    telemetry.EGLIVE = Math.round(ST.egain || 0);
-    telemetry.MOVLIVE = Math.round(ST.movS || 0);
-    telemetry.AVGHRLIVE = ST.hrSecs > 0 ? Math.round(ST.hrArea / ST.hrSecs) : 0;
-    var lb = ST.laps.length ? ST.laps[ST.laps.length - 1] : { active: 0, dist: 0 };
-    var la = Math.max(0, activeNow() - lb.active);
-    var ld = Math.max(0, ST.dist - lb.dist);
-    telemetry.LAPN = ST.laps.length + 1;
-    telemetry.LAPD = Math.round(ld);
-    telemetry.LAPT = Math.round(la);
-    telemetry.LAPP = (ld >= 10 && la > 0) ? Math.round(la / (ld / 1000)) : 0;
+    appendLiveStats(telemetry, false);
   }
   // Accuracy, split and live stats produced by one fix share one radio packet.
   // Split alerts are protected so queue coalescing can never discard a milestone.
@@ -698,14 +801,43 @@ function onFix(pos) {
 
 /* Auto-pause: N slow fixes in a row pause the run; M fast ones resume it. */
 function autoPauseCheck(fix) {
-  if (!ST.prevFix) return;
+  if (!ST.prevFix) { ST.apVec = null; return; }
   var dt = fix.t - ST.prevFix.t;
   if (dt <= 0) return;                 // duplicate / zero-delta fix: don't fabricate a speed
-  var v = haversine(ST.prevFix, fix) / dt;
+  if (dt * 1000 >= C.GPS_STALE_MS) {
+    // A return from a GPS outage is a new observation boundary, not evidence
+    // that the athlete stopped or resumed throughout the unseen interval.
+    ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
+    return;
+  }
+  // Preserve direction as well as scalar speed for Hike. In a gorge, two
+  // uncertain positions commonly alternate across the true location: scalar
+  // speed calls every leg "fast", while the near-180-degree reversals reveal
+  // that there is no credible forward progress. Accurate switchbacks are left
+  // alone, as are all other activity modes.
+  var midLat = rad((ST.prevFix.lat + fix.lat) / 2);
+  var vx = rad(fix.lon - ST.prevFix.lon) * 6371000 * Math.cos(midLat);
+  var vy = rad(fix.lat - ST.prevFix.lat) * 6371000;
+  var vm = Math.sqrt(vx * vx + vy * vy);
+  var uncertainReverse = false;
+  if (ST.act === 3 && ST.apVec && vm >= 2 && ST.apVec.m >= 2) {
+    var uncertainty = Math.max(fix.acc || 0, ST.prevFix.acc || 0,
+                               ST.apVec.acc || 0);
+    var cosine = (vx * ST.apVec.x + vy * ST.apVec.y) / (vm * ST.apVec.m);
+    uncertainReverse = uncertainty >= C.AP_REVERSE_ACC_M &&
+                       vm <= uncertainty && ST.apVec.m <= uncertainty &&
+                       cosine <= C.AP_REVERSE_COS;
+  }
+  ST.apVec = { x: vx, y: vy, m: vm,
+               acc: Math.max(fix.acc || 0, ST.prevFix.acc || 0) };
+  // Android receiver speed can be Doppler-derived and steadier than coordinate
+  // differences. The bridge exposes no speed uncertainty, so trust it only
+  // when finite/plausible and paired with a reasonably accurate position.
+  var v = (fix.speed !== null && fix.acc <= 25) ? fix.speed : vm / dt;
 
   if (!ST.autopaused) {
-    if (WSET.ap && v < activityValue(C.AP_SLOW, ST.act)) {
-      if (++ST.slowN >= C.AP_SLOW_N) {
+    if (WSET.ap && (v < activityValue(C.AP_SLOW, ST.act) || uncertainReverse)) {
+      if (++ST.slowN >= activityValue(C.AP_SLOW_N, ST.act)) {
         freezeActive();
         ST.autopaused = true; ST.slowN = 0; ST.fastN = 0;
         recordEvent('auto_pause');
@@ -714,8 +846,8 @@ function autoPauseCheck(fix) {
       }
     } else ST.slowN = 0;
   } else {
-    if (v > activityValue(C.AP_FAST, ST.act)) {
-      if (++ST.fastN >= C.AP_FAST_N) {
+    if (v > activityValue(C.AP_FAST, ST.act) && !uncertainReverse) {
+      if (++ST.fastN >= activityValue(C.AP_FAST_N, ST.act)) {
         ST.autopaused = false; ST.fastN = 0; ST.slowN = 0;
         ST.last = null; ST.segFlag = 1;     // new GPX segment on resume
         ST.stepHist = [];                   // fresh cadence window after the paused stretch
@@ -762,7 +894,7 @@ function startRun(sid, startAt) {
   if (ST.pendingRecovery && !finalizeRecovery(ST.pendingRecovery)) return;
   cancelPauseGpsRelease();
   clearInProgress();             // discard only after an explicit new-session intent
-  ST.lastRaw = null; ST.prevFix = null;
+  ST.lastRaw = null; ST.prevFix = null; ST.apVec = null;
   ST.recording = true; ST.paused = false; ST.autopaused = false;
   ST.pts = []; ST.dist = 0; ST.movS = 0;
   ST.last = null;
@@ -770,7 +902,7 @@ function startRun(sid, startAt) {
                  ? startAt : now();
   ST.splitN = 0; ST.segFlag = 0;
   ST.lastT = 0; ST.lastTp = 0;
-  ST.slowN = 0; ST.fastN = 0;
+  ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
   ST.eleSm = null; ST.eleBase = null; ST.egain = 0;
   ST.steps = 0; ST.lastSteps = null; ST.stepHist = []; ST.cad = 0;
   ST.stepAdj = 0; ST.stepPrevRaw = null;
@@ -811,7 +943,7 @@ function pauseRun() {
   freezeActive();
   ST.lastRaw = null;   // first fix after resume starts a fresh segment (not gated)
   ST.paused = true; ST.autopaused = false;
-  ST.slowN = 0; ST.fastN = 0;
+  ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
   ST.stepHist = [];              // a pre-pause sample must not seed the first post-pause cadence
   armPauseGpsRelease();
   recordEvent('pause');
@@ -821,7 +953,7 @@ function resumeRun() {
   if (!ST.recording || (!ST.paused && !ST.autopaused)) return;   // idempotent: nothing to resume if not paused
   cancelPauseGpsRelease();
   ST.paused = false; ST.autopaused = false;
-  ST.slowN = 0; ST.fastN = 0;
+  ST.slowN = 0; ST.fastN = 0; ST.apVec = null;
   ST.last = null; ST.lastRaw = null; ST.segFlag = 1;
   ST.kf = newTrackFilter();       // manual-pause fixes skipped filtering
   ST.stepHist = [];
@@ -829,6 +961,15 @@ function resumeRun() {
   startGeo();                    // may have been released during a long manual Hike pause
   recordEvent('resume');
   persistInProgress();
+}
+
+function sendNoSaveForCurrentSession() {
+  var failedSid = ST.sid;
+  send({ NOSAVE: 1, PROTO: 3, SID: wireSid(failedSid) }, true);
+  // The tagged NOSAVE clears this workout on the watch. Any following
+  // command ACK/state snapshot must describe the resulting blank recorder,
+  // not re-advertise the discarded identifier with WSTATE=READY.
+  ST.sid = 0;
 }
 
 function stopRun() {
@@ -858,11 +999,11 @@ function stopRun() {
       try { openRunLogPage(runId(run)); } catch (e1) {}
       clearInProgress();
     } else {
-      send({ NOSAVE: 1 }, true); // storage full and unrecoverable — don't claim it saved, and KEEP the checkpoint
+      sendNoSaveForCurrentSession(); // storage full and unrecoverable — don't claim it saved, and KEEP the checkpoint
     }
   } else {
     /* An immediate accidental start/stop still has no meaningful workout data. */
-    send({ NOSAVE: 1 }, true);
+    sendNoSaveForCurrentSession();
     clearInProgress();
   }
 }
@@ -1223,6 +1364,116 @@ function recomputeDerived(run) {
   run.splits = routed ? computeSplits(cpts, run.mi, C.SPLIT_MULT[act]) : [];
   run.analysis = analyseWorkout(run, cpts, vMaxHr);
   return run;
+}
+
+/* Base aggregates that can be reconstructed from the compact saved route.
+ * Trimming deliberately snaps to retained points: no coordinate, HR or
+ * elevation value is invented at a cut boundary. */
+function trimPointStats(pts) {
+  var out = { dist: 0, mov: 0, egain: 0, hrArea: 0, hrSecs: 0,
+              hrPeak: 0, cadWork: 0 };
+  var eleBase = null;
+  for (var i = 0; i < pts.length; i++) {
+    var p = pts[i], ele = p[3];
+    if (p[4] > out.hrPeak) out.hrPeak = p[4];
+    if (p[5]) eleBase = null;
+    if (ele !== '' && ele !== null && ele !== undefined && isFinite(ele)) {
+      ele = Number(ele);
+      if (eleBase === null) eleBase = ele;
+      else {
+        var de = ele - eleBase;
+        if (de >= 3) { out.egain += de; eleBase = ele; }
+        else if (de <= -3) eleBase = ele;
+      }
+    }
+    if (i === 0 || p[5]) continue;
+    var a = pts[i - 1], rawDt = p[0] - a[0];
+    if (!(rawDt > 0)) continue;
+    var dt = Math.min(rawDt, C.MOV_CAP_S);
+    out.dist += haversine({ lat: a[1], lon: a[2] }, { lat: p[1], lon: p[2] });
+    out.mov += dt;
+    var hr = p[4] > 0 ? p[4] : (a[4] > 0 ? a[4] : 0);
+    if (hr > 0) { out.hrArea += hr * dt; out.hrSecs += dt; }
+    var cad = p[6] > 0 ? p[6] : (a[6] > 0 ? a[6] : 0);
+    if (cad > 0) out.cadWork += cad * dt;
+  }
+  return out;
+}
+
+function trimTimelineBounds(run, pts) {
+  var first = pts[0][0], last = pts[pts.length - 1][0];
+  var start = run.start && isFinite(run.start) ? run.start / 1000 : first;
+  var end = run.dur > 0 ? start + run.dur : last;
+  if (start > first) start = first;
+  if (end < last) end = last;
+  return { start: start, end: end };
+}
+
+function trimEventState(active, type) {
+  if (type === 'start' || type === 'resume' || type === 'auto_resume') return true;
+  if (type === 'pause' || type === 'auto_pause' || type === 'stop' ||
+      type === 'recovered') return false;
+  return active;
+}
+
+function trimSortedEvents(events) {
+  return (events || []).slice().filter(function (e) {
+    return e && isFinite(e[0]) && typeof e[1] === 'string';
+  }).sort(function (a, b) { return a[0] - b[0]; });
+}
+
+/* Exact active-time overlap when the saved pause/resume event stream exists.
+ * Legacy records without events return null and use a proportional fallback. */
+function trimActiveInWindow(events, lo, hi) {
+  var ev = trimSortedEvents(events);
+  if (!ev.length) return null;
+  var active = true, cursor = lo, total = 0, i, at;
+  for (i = 0; i < ev.length && ev[i][0] <= lo; i++)
+    active = trimEventState(active, ev[i][1]);
+  for (; i < ev.length && ev[i][0] < hi; i++) {
+    at = Math.max(lo, ev[i][0]);
+    if (active && at > cursor) total += at - cursor;
+    cursor = Math.max(cursor, at);
+    active = trimEventState(active, ev[i][1]);
+  }
+  if (active && hi > cursor) total += hi - cursor;
+  return Math.max(0, total);
+}
+
+function trimEventsToWindow(events, lo, hi) {
+  var ev = trimSortedEvents(events), active = true, out = [], i;
+  // Keep legacy activities event-less. Inventing a fully-active start/stop
+  // pair would make a second trim lose the proportional fallback used when
+  // the original pause history was never stored.
+  if (!ev.length) return out;
+  for (i = 0; i < ev.length && ev[i][0] <= lo; i++)
+    active = trimEventState(active, ev[i][1]);
+  out.push([Math.round(lo), 'start']);
+  if (!active) out.push([Math.round(lo), 'pause']);
+  for (; i < ev.length && ev[i][0] < hi; i++) {
+    var type = ev[i][1];
+    if (type === 'pause' || type === 'auto_pause' ||
+        type === 'resume' || type === 'auto_resume')
+      out.push([Math.round(ev[i][0]), type]);
+  }
+  out.push([Math.round(hi), 'stop']);
+  return out;
+}
+
+function trimDistanceAt(pts, at) {
+  var d = 0;
+  for (var i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i];
+    if (at <= a[0]) break;
+    if (b[5]) continue;
+    var dm = haversine({ lat: a[1], lon: a[2] }, { lat: b[1], lon: b[2] });
+    if (at >= b[0]) d += dm;
+    else {
+      d += dm * Math.max(0, Math.min(1, (at - a[0]) / (b[0] - a[0])));
+      break;
+    }
+  }
+  return d;
 }
 
 function finalizeRun(d, suffix) {
@@ -2084,7 +2335,7 @@ function loadWatchSet() {
       var c = JSON.parse(raw);
       WSET.mi = !!c.mi; WSET.ap = !!c.ap; WSET.splits = !!c.splits;
       WSET.mode = activityIndex(c.mode);
-      if (c.maxHr >= 120 && c.maxHr <= 220) WSET.maxHr = c.maxHr;
+      if (c.maxHr >= 80 && c.maxHr <= 220) WSET.maxHr = c.maxHr;
       if (c.restHr >= 0 && c.restHr <= 120) WSET.restHr = c.restHr;
       WSET.zone = c.zone !== false;
       WSET.pending = !!c.pending;
@@ -2109,10 +2360,20 @@ function normaliseWatchConfig(w) {
   };
 }
 
+function wireBit(v) { return typeof v === 'number' && (v === 0 || v === 1); }
+function validWatchSnapshot(p) {
+  return p && wireBit(p.UNITS) && wireBit(p.AUTOP) && wireBit(p.SPLITP) &&
+         wireBit(p.HRZONE) && typeof p.MHR === 'number' && isFinite(p.MHR) &&
+         p.MHR === Math.floor(p.MHR) && p.MHR >= 80 && p.MHR <= 220 &&
+         typeof p.RHR === 'number' && isFinite(p.RHR) &&
+         p.RHR === Math.floor(p.RHR) && p.RHR >= 0 && p.RHR <= 120;
+}
+function applyWatchSnapshot(p) {
+  WSET.mi = !!p.UNITS; WSET.ap = !!p.AUTOP; WSET.splits = !!p.SPLITP;
+  WSET.maxHr = p.MHR; WSET.restHr = p.RHR; WSET.zone = !!p.HRZONE;
+}
 function watchSnapshotMatches(p) {
-  return p.UNITS !== undefined && p.AUTOP !== undefined &&
-         p.SPLITP !== undefined && p.MHR !== undefined &&
-         p.RHR !== undefined && p.HRZONE !== undefined &&
+  return validWatchSnapshot(p) &&
          (!!p.UNITS === WSET.mi) && (!!p.AUTOP === WSET.ap) &&
          (!!p.SPLITP === WSET.splits) && (Number(p.MHR) === WSET.maxHr) &&
          (Number(p.RHR) === WSET.restHr) && (!!p.HRZONE === WSET.zone);
@@ -2485,16 +2746,27 @@ Pebble.addEventListener('ready', function () {
 Pebble.addEventListener('appmessage', function (e) {
   var p = (e && e.payload) || {};
   var setChanged = false;
-  // A phone edit remains authoritative until the watch echoes the complete
-  // applied snapshot. This prevents an old HELLO after a disconnected edit
-  // from silently overwriting the user's new settings.
-  if (WSET.pending) {
+  // CFGSET=2 is an explicit local watch edit. It supersedes an older phone
+  // snapshot that may still be pending from a disconnected page save, and the
+  // next protected state packet echoes the complete accepted values as its ACK.
+  var declaresWatchLocalEdit = Number(p.CFGSET) === 2;
+  var watchLocalEdit = declaresWatchLocalEdit && validWatchSnapshot(p);
+  if (watchLocalEdit) {
+    WSET.pending = false;
+    applyWatchSnapshot(p);
+    ST.watchSetAck = true;
+    setChanged = true;
+  }
+  // Unless CFGSET=2 declares a deliberate local edit, a phone edit remains
+  // authoritative until the watch echoes the complete applied snapshot. This
+  // prevents an old HELLO from silently overwriting disconnected page changes.
+  if (!declaresWatchLocalEdit && WSET.pending) {
     if (watchSnapshotMatches(p)) { WSET.pending = false; setChanged = true; }
-  } else {
+  } else if (!declaresWatchLocalEdit && !WSET.pending) {
     if (p.UNITS !== undefined)  { WSET.mi = !!p.UNITS; setChanged = true; }
     if (p.AUTOP !== undefined)  { WSET.ap = !!p.AUTOP; setChanged = true; }
     if (p.SPLITP !== undefined) { WSET.splits = !!p.SPLITP; setChanged = true; }
-    if (p.MHR !== undefined && p.MHR >= 120 && p.MHR <= 220) { WSET.maxHr = p.MHR; setChanged = true; }
+    if (p.MHR !== undefined && p.MHR >= 80  && p.MHR <= 220) { WSET.maxHr = p.MHR; setChanged = true; }
     if (p.RHR !== undefined && p.RHR >= 0   && p.RHR <= 120) { WSET.restHr = p.RHR; setChanged = true; }
     if (p.HRZONE !== undefined) { WSET.zone = !!p.HRZONE; setChanged = true; }
   }
@@ -2541,11 +2813,12 @@ Pebble.addEventListener('appmessage', function (e) {
     }
     // The watch already excludes steps taken while paused from this count (a
     // paused stretch freezes it), so we take it at face value. Cadence is the
-    // derivative of a coarse, Bluetooth-delivered step counter: over one ~5 s
-    // message that derivative is dominated by integer-step quantisation and BLE
-    // arrival jitter, throwing individual points to ~2x/~0.5x the true rate (in
+    // derivative of a coarse, Bluetooth-delivered step counter. Over one
+    // activity-profile sample message, that derivative is dominated by
+    // integer-step quantisation and BLE arrival jitter, throwing individual
+    // points to ~2x/~0.5x the true rate (in
     // matched high/low pairs, since the total stays correct). Average the rate
-    // over a short trailing window, snapped to the watch's 5 s send cadence, to
+    // over a short trailing window, snapped to the watch's configured cadence, to
     // remove the spikes without shifting the bulk value or the run average. The
     // window is cleared across pauses (in pauseRun/resumeRun) so a pre-pause
     // sample can't seed a bogus first post-resume cadence.
@@ -2628,6 +2901,89 @@ function renameLast(raw, id) {
   ST.lastSaved = runId(f.run);
   rlog('renamed "' + old + '" -> "' + name + '" (voice)');
   if (wasUploaded) rlog('note: re-upload to update the server copy');
+  return true;
+}
+
+/* Permanently keep one inclusive point range from a saved routed activity.
+ * New immutable chunks are written before the run index changes, so a quota
+ * or write failure leaves the original activity authoritative and recoverable. */
+function trimSavedRun(id, first, last) {
+  var f = findRunById(id);
+  if (!f || !f.run || f.run.route === 0 || !f.run.pts) return false;
+  first = Number(first); last = Number(last);
+  if (!isFinite(first) || !isFinite(last) || first !== Math.floor(first) ||
+      last !== Math.floor(last) || first < 0 || last <= first ||
+      last >= f.run.pts.length ||
+      (first === 0 && last === f.run.pts.length - 1)) return false;
+
+  var run = f.run, oldPts = run.pts, bounds = trimTimelineBounds(run, oldPts);
+  var lo = first === 0 ? bounds.start : oldPts[first][0];
+  var hi = last === oldPts.length - 1 ? bounds.end : oldPts[last][0];
+  if (!isFinite(lo) || !isFinite(hi) || hi - lo < 10) return false;
+
+  var oldId = runId(run), oldEvents = run.events || [], oldLaps = run.laps || [];
+  var oldStats = trimPointStats(oldPts);
+  var pts = [];
+  for (var i = first; i <= last; i++) pts.push(oldPts[i].slice());
+  pts[0][5] = 0;                         // a retained route always starts a fresh segment
+  var stats = trimPointStats(pts);
+  if (!(stats.dist >= 0) || !(stats.mov >= 0)) return false;
+
+  var dur = hi - lo;
+  var oldActive = Math.max(0, Number(run.active || run.mov || run.dur || 0));
+  var active = trimActiveInWindow(oldEvents, lo, hi);
+  if (active === null) {
+    var fullDur = Math.max(1, bounds.end - bounds.start);
+    active = oldActive * dur / fullDur;
+  }
+  active = Math.min(dur, Math.max(stats.mov, active));
+
+  var stepRatio = 0;
+  if (oldStats.cadWork > 0) stepRatio = stats.cadWork / oldStats.cadWork;
+  else if (oldActive > 0) stepRatio = active / oldActive;
+  else if (bounds.end > bounds.start) stepRatio = dur / (bounds.end - bounds.start);
+  stepRatio = Math.max(0, Math.min(1, stepRatio));
+
+  var laps = [];
+  for (i = 0; i < oldLaps.length; i++) {
+    var lapAt = Number(oldLaps[i].at);
+    if (!(lapAt > lo && lapAt < hi)) continue;
+    var lapActive = trimActiveInWindow(oldEvents, lo, lapAt);
+    if (lapActive === null) lapActive = active * (lapAt - lo) / dur;
+    laps.push({ at: lapAt, active: Math.round(Math.max(0, lapActive)),
+                dist: Math.round(trimDistanceAt(pts, lapAt)) });
+  }
+
+  run.pts = pts;
+  run.start = Math.round(lo * 1000);
+  run.dur = Math.round(dur);
+  run.active = Math.round(active);
+  run.mov = Math.round(stats.mov);
+  run.dist = Math.round(stats.dist);
+  run.egain = Math.round(stats.egain);
+  run.steps = activityIndex(run.act) === 2 ? 0 :
+              Math.round(Math.max(0, Number(run.steps || 0)) * stepRatio);
+  run.hrArea = stats.hrArea;
+  run.hrSecs = stats.hrSecs;
+  run.hrPeak = stats.hrPeak;
+  run.events = trimEventsToWindow(oldEvents, lo, hi);
+  run.laps = laps;
+  if (run.up === 1) run.up = 3;
+  delete run._j;                         // force a new journal for the shorter route
+  delete run.journalWarning;
+  delete run.routeDecodeError;
+  recomputeDerived(run);
+
+  f.runs[f.index] = run;
+  if (!storeRuns(f.runs)) {
+    rlog('trim FAILED for "' + (run.name || 'activity') + '"');
+    return false;
+  }
+  var newId = runId(run);
+  if (ST.lastSaved === oldId) ST.lastSaved = newId;
+  rlog('trimmed "' + run.name + '" to ' + Math.round(run.dur) +
+       ' s / ' + Math.round(run.dist) + ' m');
+  if (run.up === 3) rlog('note: re-upload to update the server copy');
   return true;
 }
 
@@ -2735,8 +3091,9 @@ function handleHello(p) {
   }
 
   if (ws === 3) {
+    var unsavedSid = sid;
     ST.sid = 0;
-    send({ NOSAVE: 1, PROTO: 3 }, true);
+    send({ NOSAVE: 1, PROTO: 3, SID: wireSid(unsavedSid) }, true);
     sendState();
     return;
   }
@@ -3063,6 +3420,8 @@ Pebble.addEventListener('webviewclosed', function (e) {
         oldCfg.key !== nextCfg.key) {
       try { localStorage.removeItem('runlog.ftok'); } catch (eft) {}
     }
+  } else if (act.act === 'trim') {
+    trimSavedRun(act.id, act.first, act.last);
   } else if (act.act === 'retype' &&
              activityIndex(act.to) === Number(act.to)) {
     var rr = loadRunIndex();

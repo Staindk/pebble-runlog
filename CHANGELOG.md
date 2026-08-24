@@ -4,6 +4,94 @@ All notable changes to RunLog. Dates are approximate. Versions that change the
 **watch binary** are marked — those require re-flashing the watch, not just
 reloading the phone bundle.
 
+## 2.2.0 — Emery-native runtime, essential settings and steadier tracking
+
+- The watch package now targets only **Emery / Pebble Time 2** and uses the
+  feature-complete native C runtime. The established 60-key protocol remains
+  append-only, so the PebbleKit JS GPS, storage, trim, export and upload pipeline
+  is unchanged.
+- Removed the full Alloy watch archive after reproducing the physical-only
+  `fxMapArchive failed in ArchivePebbleResource` crash. Current PebbleOS copies
+  an installable MOD into app RAM, while QEMU maps the same resource in place;
+  RunLog's 44 KiB archive and expanded XS state therefore fit the emulator but
+  cannot coexist on a physical PT2. The native PBW contains no MOD/XSA, uses
+  6,959 bytes of resources, and the SDK reports 48,040 bytes of fixed RAM with
+  83,032 bytes left for the app heap after the touch additions.
+- Opted the native app into PebbleOS's current PT2 touch APIs. The workout
+  window now owns its tap/swipe recognizers: a screen tap requests a coherent
+  stat refresh without synthesising SELECT or pausing, while swipes preserve
+  the established button mappings. Accelerometer-triggered refresh is
+  deliberately disabled so arm swing and rocky trails cannot create wakeups.
+  Debrief and settings keep native touch navigation, and all physical
+  single/long-button recognizers remain authoritative for rain or gloves.
+- Preserved native Health, restart recovery, dynamically fitted metrics,
+  route/stats/trends debrief and the protocol-v3 sensor journal. The bounded
+  journal holds 1,024 compact records (about 8.5 hours normally or 17 hours for
+  Hike), and AppMessage buffers remain 512 bytes.
+- Avoided continuous accelerometer sampling: PT2 Health provides workout steps,
+  while raw wrist motion would add wakeups without improving phone-GPS route
+  estimation. Normal/Hike Health and HR periods remain deliberately sparse.
+- Hike Health reads and watch-bound live snapshots now share a 30-second
+  cadence, unchanged-health keepalives use 60 seconds, and small GPS-accuracy
+  fluctuations are coalesced for up to 30 seconds. The 2-second high-accuracy
+  GPS request remains unchanged so auto-pause and resume do not become sluggish.
+- Fixed the Hike watch journal resend deadline accidentally using the normal
+  30-second constant instead of Hike's 60-second cadence.
+- Session-mutating phone packets are now rejected when their session ID is
+  missing or stale, and every no-save result carries its session ID. A delayed
+  state retry can no longer replace a newer workout on the watch.
+- Preflighted variable-length rename packets and explicitly finish a partial
+  AppMessage after any dictionary error. This prevents PebbleOS remaining in
+  `OUT_WRITING` and refusing every later control after an undersized fallback
+  buffer.
+
+- Restored the settings most useful immediately before a workout to the watch:
+  **Auto-pause**, **Units**, **Split alerts** and the **HR zone** marker now sit
+  beside Activity, while maximum/resting HR, targets, naming and uploads remain
+  under Phone settings.
+- Watch edits persist and work offline. The existing `CFGSET` key now
+  distinguishes a phone edit from a local watch edit and explicitly acknowledges
+  the accepted full snapshot, so a stale disconnected phone value cannot
+  overwrite a newer watch toggle.
+- Auto-pause now requires four consecutive slow observations in every mode.
+  The Run pause gate is 0.65 m/s and Ride is 0.90 m/s, reducing false pauses
+  during very slow genuine movement. Run and Walk require two moving
+  observations to resume; Ride and Hike require three. Stale GPS gaps reset both
+  debounce counters instead of counting an unseen interval as evidence.
+- Hike now accepts ordinary route points at most every 10 seconds, rejects fixes
+  worse than 35 m, uses a calmer filter, an accuracy-scaled movement floor and a
+  4 m/s jump gate. Uncertain near-180-degree legs inside the reported error
+  radius are treated as stop/noise evidence and cannot trigger auto-resume. This
+  reduces stopped/canyon multipath zigzags without raising the slow-climb pause
+  threshold or starving consistent 0.35 m/s progress.
+- The current Core Devices PKJS `frequency` extension now requests 1000 ms fixes
+  for Run/Walk/Ride and 2000 ms for Hike. The continuous watch no longer passes
+  `maximumAge` or `timeout`, which the current bridge does not forward.
+- GPS covariance now matches Android's forwarded 68%-confidence accuracy radius.
+  A 2D innovation gate down-weights borderline measurements and atomically
+  rejects statistically implausible jumps; guarded receiver speed improves
+  auto-pause when Core supplies it. A 10-second callback outage creates an
+  explicit route segment instead of adding distance across unseen movement.
+- The active watch screen now says **GPS LOST** when the phone remains connected
+  but the usable location stream disappears; **PHONE OFFLINE** still takes
+  precedence when Bluetooth is gone.
+- Routed activities can now be trimmed from both ends on the phone debrief.
+  Its point-snapped controls now sit directly with the map, report retained
+  time/distance/route size, label the proposed START/END markers, redraw at most
+  once per animation frame and include a one-tap Reset before the irreversible
+  confirmation. The retained route stays solid orange, discarded ends become
+  dashed grey, and no slider movement reloads map tiles. Applying a trim
+  transactionally rewrites the route journal, preserves pause segments, recalculates distance, time,
+  elevation, heart rate, splits and analysis, adjusts steps from the retained
+  cadence evidence, and marks an uploaded copy as changed locally for deliberate
+  re-upload.
+- The host suite now covers 39 end-to-end scenarios, including every activity's
+  pause/resume debounce, slow Hikes at 8 m and 20 m accuracy, Hike gorge jitter
+  with auto-pause, Core request options, innovation rejection, receiver speed,
+  stale route segmentation, activity trimming, coherent manual refresh, and the
+  watch-wins reconnect conflict. A headless SDK 4.33.1 pass also builds the
+  Emery PBW and verifies touch and physical-button state separation.
+
 ## 2.1.0 — calmer HR display and phone-first settings (complete PBW reinstall)
 
 - Removed every app-controlled backlight colour change. RunLog now leaves the

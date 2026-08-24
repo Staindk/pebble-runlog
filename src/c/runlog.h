@@ -34,6 +34,7 @@
 #define PKEY_SESSION_LAPDIST   48
 #define PKEY_SESSION_PAGE      49
 #define PKEY_SHOW_HR_ZONE      50
+#define PKEY_LOCAL_SET_PENDING 51
 
 #define RUNLOG_PROTOCOL_VERSION 3
 
@@ -112,6 +113,7 @@ extern RunStats g_stats;
 
 // ---- main.c ----
 void settings_save_and_sync(void);
+void settings_save_local_and_sync(void);
 void phone_config_open(void);
 GColor hr_zone_color(int hr);
 void fmt_dur(char *buf, size_t n, int secs);
