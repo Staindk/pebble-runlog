@@ -171,7 +171,15 @@ Also worth a look if you're shopping around the self-hosted space: **Dawarich** 
 
 ### Hosted options
 
-**intervals.icu** (API key from Settings → Developer Settings) and **Runalyze** (personal token, `activity_push` scope) presets remain for anyone who wants them. **Strava** has no preset because its API only issues OAuth tokens that expire every 6 hours — there's no pasteable permanent key; the practical route is downloading the GPX and sharing it to the Strava app.
+**intervals.icu** (API key from Settings → Developer Settings) and **Runalyze** (personal token, `activity_push` scope) presets remain for anyone who wants them.
+
+**Strava** uploads go through the official API. Strava access tokens expire every 6 hours, but the *refresh* token doesn't, so RunLog only needs three values once and renews access itself (keeping the newest refresh token whenever Strava rotates it):
+
+1. Create an API application at <https://www.strava.com/settings/api> and set **Authorization Callback Domain** to `localhost`. (Strava requires a Strava subscription for new API applications.)
+2. On a computer, run `python3 tools/strava_auth.py <client_id> <client_secret>`, approve access in the browser (keep "Upload your activities" ticked) and copy the printed values.
+3. On the phone page pick **Destination: Strava** and enter the client ID, client secret and refresh token.
+
+Uploads send `sport_type` (Run/Walk/Ride/Hike), so TCX's missing Walking/Hiking sport doesn't matter. RunLog waits for Strava to finish processing, records the Strava activity id, and logs a `strava.com/activities/…` link. Activity names from the default template are left out so Strava picks its own ("Morning Run"); custom names are sent. A re-upload of an activity already on Strava counts as success.
 
 ## Files
 
@@ -194,9 +202,10 @@ runlog/
     ├── build_page.js       embeds page.html into src/pkjs/page.js, injecting
     │                       gpx/tcx/fit/smooth so the page and the uploader run
     │                       identical code (also require()d by the page tests)
-    ├── test_pipeline.js    full phone-side simulation tests (39 scenarios)
+    ├── test_pipeline.js    full phone-side simulation tests (40 scenarios)
     ├── test_formats.js     GPX/TCX/FIT format tests
-    └── test_export.js      page rendering/map/export/action tests
+    ├── test_export.js      page rendering/map/export/action tests
+    └── strava_auth.py      one-time Strava OAuth login → refresh token
 ```
 
 ## Building

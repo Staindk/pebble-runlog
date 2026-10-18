@@ -9,7 +9,7 @@
  *    elevation gain with smoothing + hysteresis
  *  - on save: stats bundle + downsampled route shape to the watch,
  *    a compact metadata index and checksummed route journal in localStorage
- *  - manual export/upload to Endurain, FitTrackee, intervals.icu,
+ *  - manual export/upload to Strava, Endurain, FitTrackee, intervals.icu,
  *    Runalyze, WebDAV or a custom webhook
  *  - the app's Settings page is the debrief UI: OSM map, charts,
  *    splits, GPX download, upload + storage management (tools/page.html)
@@ -101,6 +101,11 @@ var C = {
   GRAPH_PTS: 48,        // pace/HR samples sent to the watch debrief graphs
   UPLOAD_TIMEOUT_MS: 20000,
   ENDURAIN_UPLOAD_TIMEOUT_MS: 90000, // Endurain parses and stores the file before its 201 response
+  STRAVA_API: 'https://www.strava.com/api/v3',
+  STRAVA_TOKEN_URL: 'https://www.strava.com/oauth/token',
+  STRAVA_SPORT: ['Run', 'Walk', 'Ride', 'Hike'],
+  STRAVA_POLL_MS: 2000,           // Strava asks for >= 1 s between upload status polls
+  STRAVA_POLL_TRIES: 15,          // ~30 s; mean processing time is ~2 s
   MAX_PAGE_URL_CHARS: 900000,   // keep the one-shot settings page below fragile data: URL limits
   QUEUE_MAX: 30,
   IP_HEARTBEAT_MS: 60000,
@@ -2304,7 +2309,7 @@ function loadCfg() {
     var raw = localStorage.getItem('runlog.cfg');
     var c = raw ? JSON.parse(raw) : {};
     var preset = c.preset;
-    if (['custom', 'webdav', 'intervals', 'runalyze', 'fittrackee', 'endurain'].indexOf(preset) < 0) {
+    if (['custom', 'webdav', 'intervals', 'runalyze', 'fittrackee', 'endurain', 'strava'].indexOf(preset) < 0) {
       preset = (c.method === 'PUT') ? 'webdav' : 'custom';   // migrate old configs
     }
     return { auto: c.auto ? 1 : 0, preset: preset, url: c.url || '',
@@ -2323,6 +2328,7 @@ function hasTarget(c) {
   if (c.preset === 'intervals' || c.preset === 'runalyze') return !!c.key;
   if (c.preset === 'endurain') return !!(c.url && c.key);
   if (c.preset === 'fittrackee') return !!(c.url && (c.key || (c.user && c.pass)));
+  if (c.preset === 'strava') return !!(c.user && c.pass && (c.key || stravaState().rt));
   return !!c.url;
 }
 function storeCfg(c) {
@@ -2438,10 +2444,18 @@ function authHeader(c) {
 
 function strBytes(s) { var a = [], i; for (i = 0; i < s.length; i++) a.push(s.charCodeAt(i) & 0xFF); return a; }
 
-/* multipart/form-data body. fileBody is a string (GPX/TCX) or Uint8Array (FIT). */
-function multipart(fileBody, fname, contentType, dataJson, forceBytes) {
+/* multipart/form-data body. fileBody is a string (GPX/TCX) or Uint8Array (FIT).
+ * fields: optional { name: value } plain form fields sent before the file. */
+function multipart(fileBody, fname, contentType, dataJson, forceBytes, fields) {
   var bnd = 'runlog' + Date.now().toString(16);
-  var pre = '--' + bnd + '\r\n' +
+  var pre = '';
+  for (var fk in fields) {
+    if (fields.hasOwnProperty(fk) && fields[fk] !== undefined && fields[fk] !== '') {
+      pre += '--' + bnd + '\r\n' +
+             'Content-Disposition: form-data; name="' + fk + '"\r\n\r\n' + fields[fk] + '\r\n';
+    }
+  }
+  pre += '--' + bnd + '\r\n' +
             'Content-Disposition: form-data; name="file"; filename="' + fname + '"\r\n' +
             'Content-Type: ' + (contentType || 'application/octet-stream') + '\r\n\r\n';
   var post = '\r\n';
@@ -2472,9 +2486,29 @@ function endurainUploadUrl(raw) {
 }
 
 /* One place that knows how to talk to each destination.
- * ftok is only used by the FitTrackee branch (managed bearer token). */
+ * ftok is the managed bearer token, used by the FitTrackee and Strava branches. */
 function buildUploadRequest(c, run, ex, ftok) {
   var body = ex.body, ct = ex.contentType, fname = ex.fname;
+  if (c.preset === 'strava') {
+    if (!ftok) return null;
+    var fmtS = fname.slice(fname.lastIndexOf('.') + 1);
+    // Strava only reads its own form fields; the file's Sport is ignored once
+    // sport_type is given, which matters for TCX (no Walking/Hiking sport).
+    var ms = multipart(body, fname, ct, null, true, {
+      data_type: fmtS,
+      sport_type: C.STRAVA_SPORT[activityIndex(run.act)],
+      external_id: 'runlog-' + runId(run) + '.' + fmtS,
+      // Default-template names ("2026-10-19_0712_run") are worse than
+      // Strava's own "Morning Run", so only send names the user chose.
+      name: run.name === nameFromTemplate('', run.act, run.start) ? '' : run.name
+    });
+    return {
+      method: 'POST',
+      url: C.STRAVA_API + '/uploads',
+      headers: { 'Content-Type': ms.type, 'Authorization': 'Bearer ' + ftok },
+      body: ms.body
+    };
+  }
   if (c.preset === 'intervals') {
     if (!c.key) return null;
     var m = multipart(body, fname, ct);
@@ -2615,6 +2649,85 @@ function ftLogin(c, cb) {
   });
 }
 
+/* ---- Strava token management ----
+ * Strava access tokens last ~6 h, but the refresh token does not expire: the
+ * user pastes one once (with activity:write scope) alongside their API app's
+ * client id + secret, and we trade it for access tokens as needed. Strava
+ * may rotate the refresh token on each refresh and the old one then stops
+ * working, so the latest one is persisted in runlog.strava, which wins over
+ * the pasted cfg.key until settings change. */
+function stravaState() {
+  try {
+    var s = JSON.parse(localStorage.getItem('runlog.strava') || '{}');
+    return (s && typeof s === 'object') ? s : {};
+  } catch (e) { return {}; }
+}
+
+function stravaAccess(c, force, cb) {
+  var s = stravaState();
+  if (!force && s.at && s.exp > now() / 1000 + 300) return cb(s.at, 200);
+  var rt = s.rt || c.key;
+  if (!c.user || !c.pass || !rt) return cb(null, 0);
+  xhrSend({
+    method: 'POST',
+    url: C.STRAVA_TOKEN_URL,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'client_id=' + encodeURIComponent(c.user) +
+          '&client_secret=' + encodeURIComponent(c.pass) +
+          '&grant_type=refresh_token&refresh_token=' + encodeURIComponent(rt)
+  }, function (status, text) {
+    var t = null;
+    if (status >= 200 && status < 300) {
+      try { t = JSON.parse(text); } catch (e) {}
+    }
+    if (!t || !t.access_token) {
+      rlog('strava token refresh FAILED (HTTP ' + status + ')' +
+           (status === 400 || status === 401 ? ' - check client id/secret, or re-authorise for a new refresh token' : ''));
+      return cb(null, status);
+    }
+    try {
+      localStorage.setItem('runlog.strava', JSON.stringify({
+        at: t.access_token, exp: Number(t.expires_at) || 0, rt: t.refresh_token || rt
+      }));
+    } catch (e2) {
+      rlog('WARNING: could not save the new Strava refresh token');
+    }
+    cb(t.access_token, status);
+  });
+}
+
+/* Strava processes uploads asynchronously. Read one upload status (the POST
+ * reply or a poll) into cb(ok, activityId, message), or return false while
+ * it is still processing. A duplicate means the activity is already on
+ * Strava, which is what the user wanted anyway. */
+function stravaUploadDone(u, cb) {
+  if (u.activity_id) { cb(true, String(u.activity_id), u.status); return true; }
+  if (!u.error) return false;
+  var dup = /duplicate of.*?activities\/(\d+)/.exec(u.error);
+  if (dup) cb(true, dup[1], 'already on Strava');
+  else cb(false, null, uploadErrorText(JSON.stringify({ error: u.error })));
+  return true;
+}
+
+/* Poll GET /uploads/:id, waiting C.STRAVA_POLL_MS before each request. */
+function stravaPoll(uploadId, token, tries, cb) {
+  var tm = setTimeout(function () {
+    xhrSend({
+      method: 'GET',
+      url: C.STRAVA_API + '/uploads/' + uploadId,
+      headers: { 'Authorization': 'Bearer ' + token }
+    }, function (status, text) {
+      var u = null;
+      try { u = JSON.parse(text); } catch (e) {}
+      if (status >= 200 && status < 300 && u && stravaUploadDone(u, cb)) return;
+      // Accepted but still processing: it will appear on Strava regardless.
+      if (tries <= 1) return cb(true, null, 'accepted, still processing');
+      stravaPoll(uploadId, token, tries - 1, cb);
+    });
+  }, C.STRAVA_POLL_MS);
+  if (tm && tm.unref) tm.unref();
+}
+
 function uploadErrorText(text) {
   if (!text) return '';
   var msg = '';
@@ -2642,6 +2755,7 @@ function uploadRun(run) {
   if (!ex) { rlog('nothing to upload (run has no GPS track)'); send({ EXPST: 3, EXPERR: 0, SID: wireSid(uploadSid) }, true); return; }
   var fname = ex.fname;
   var fmt = (['gpx', 'tcx', 'fit'].indexOf(c.fmt) >= 0) ? c.fmt : 'gpx';
+  var remoteId = null;
 
   function finish(ok, status, responseText) {
     ST.uploading = false;
@@ -2653,6 +2767,7 @@ function uploadRun(run) {
     updateRun(uploadSid, function (r) {
       r.up = ok ? 1 : 2;
       if (ok) r.upMeta = { dest: c.preset || 'custom', fmt: fmt, at: Math.round(now() / 1000) };
+      if (ok && remoteId) r.upMeta.id = remoteId;
     });
     if (ok) {
       rlog('upload ok (HTTP ' + status + ')');
@@ -2695,6 +2810,41 @@ function uploadRun(run) {
     } else {
       attempt();
     }
+    return;
+  }
+
+  if (c.preset === 'strava') {
+    if (!hasTarget(c)) {
+      rlog('strava upload needs a client id, client secret and refresh token');
+      send({ EXPST: 2, EXPERR: 0, SID: wireSid(uploadSid) }, true);
+      return;
+    }
+    ST.uploading = true;
+    rlog('upload -> strava (' + fname + ')');
+    send({ EXPST: 0, SID: wireSid(uploadSid) }, true); // "Uploading…"
+    var renewed = false;
+    var sendStrava = function (tok) {
+      xhrSend(buildUploadRequest(c, run, ex, tok), function (status, text) {
+        if (status === 401 && !renewed) {
+          renewed = true;                         // revoked/expired early: renew once
+          rlog('strava token rejected (HTTP 401), refreshing');
+          return stravaAccess(c, true, function (t2, st2) {
+            t2 ? sendStrava(t2) : finish(false, st2);
+          });
+        }
+        var up = null;
+        try { up = JSON.parse(text); } catch (e) {}
+        if (status < 200 || status >= 300 || !up || !up.id_str) return finish(false, status, text);
+        var done = function (ok, actId, msg) {
+          remoteId = actId;
+          if (ok) rlog('strava: ' + (msg || 'ready') +
+                       (actId ? ' - strava.com/activities/' + actId : ''));
+          finish(ok, ok ? status : 400, ok ? '' : msg);
+        };
+        if (!stravaUploadDone(up, done)) stravaPoll(up.id_str, tok, C.STRAVA_POLL_TRIES, done);
+      });
+    };
+    stravaAccess(c, false, function (tok, st) { tok ? sendStrava(tok) : finish(false, st); });
     return;
   }
 
@@ -3419,6 +3569,12 @@ Pebble.addEventListener('webviewclosed', function (e) {
         oldCfg.user !== nextCfg.user || oldCfg.pass !== nextCfg.pass ||
         oldCfg.key !== nextCfg.key) {
       try { localStorage.removeItem('runlog.ftok'); } catch (eft) {}
+    }
+    // A changed client or newly pasted refresh token starts a fresh Strava
+    // grant. Switching destinations alone must not drop a rotated token.
+    if (oldCfg.user !== nextCfg.user || oldCfg.pass !== nextCfg.pass ||
+        oldCfg.key !== nextCfg.key) {
+      try { localStorage.removeItem('runlog.strava'); } catch (est) {}
     }
   } else if (act.act === 'trim') {
     trimSavedRun(act.id, act.first, act.last);

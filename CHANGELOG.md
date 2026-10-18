@@ -4,6 +4,17 @@ All notable changes to RunLog. Dates are approximate. Versions that change the
 **watch binary** are marked — those require re-flashing the watch, not just
 reloading the phone bundle.
 
+## Unreleased — Strava upload destination
+
+- New **Strava** upload destination using the official API (phone bundle only,
+  no watch re-flash). RunLog exchanges a one-time refresh token for access
+  tokens as needed, persists rotated refresh tokens, renews once on HTTP 401,
+  sends `sport_type`/`data_type`/`external_id`, and polls `GET /uploads/:id`
+  until Strava reports the activity (duplicates count as success). The Strava
+  activity id is stored in `upMeta.id`.
+- `tools/strava_auth.py`: standard-library helper that performs the one-time
+  OAuth login on a computer and prints the values for the phone page.
+
 ## 2.2.0 — Emery-native runtime, essential settings and steadier tracking
 
 - The watch package now targets only **Emery / Pebble Time 2** and uses the

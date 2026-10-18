@@ -2681,4 +2681,145 @@ function storedRuns(W) {
   console.log('scenario 39 (screen-tap coherent live-stat refresh) OK');
 })();
 
+/* =======================================================================
+ * 40 — Strava: refresh-token grant, async upload polling, duplicates,
+ * token rotation, 401 renewal and settings-change resets.
+ * ===================================================================== */
+(function scenario40() {
+  var W = makeWorld(); W.boot(); W.fire('ready', {});
+  var t0 = 1752700000;
+  W.clockMs = t0 * 1000;
+  W.fire('appmessage', { payload: { MODE: 0, AUTOP: 0, SPLITP: 0 } });
+  W.fire('appmessage', { payload: { CMD: 1 } });
+  var w = makeWalker(W, t0, -31.95, 115.85);
+  for (var i = 0; i < 8; i++) {
+    w.step(3.0, 5, 20, 6);
+    W.fire('appmessage', { payload: { HR: 140 + i } });
+  }
+  W.fire('appmessage', { payload: { CMD: 4 } });
+  var run = storedRuns(W)[0], id = run.sid || run.start;
+  function cfg(extra) {
+    var c = { preset: 'strava', fmt: 'tcx', user: '4242', pass: 'csecret', passSet: 1,
+              key: 'rt-pasted', keySet: 1 };
+    for (var k in extra) c[k] = extra[k];
+    W.fire('webviewclosed', { response: JSON.stringify({ act: 'cfg', cfg: c }) });
+  }
+  function retry() { W.fire('webviewclosed', { response: JSON.stringify({ act: 'retry', id: id }) }); }
+  function last() { return W.xhrs[W.xhrs.length - 1]; }
+  function logs() { return JSON.parse(W.store['runlog.log']).map(function (e) { return e[1]; }); }
+  function tokenReply(at, rt) {
+    return JSON.stringify({ access_token: at, refresh_token: rt,
+                            expires_at: Math.round(W.clockMs / 1000) + 21600 });
+  }
+
+  cfg({});
+  var n0 = W.xhrs.length;
+  retry();
+  var tr = last();
+  assert.strictEqual(W.xhrs.length, n0 + 1, 'first upload starts with a token refresh');
+  assert.strictEqual(tr.method, 'POST');
+  assert.strictEqual(tr.url, 'https://www.strava.com/oauth/token');
+  assert.strictEqual(tr.headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.strictEqual(tr.body, 'client_id=4242&client_secret=csecret' +
+                              '&grant_type=refresh_token&refresh_token=rt-pasted');
+  tr.respond(200, tokenReply('at-1', 'rt-rotated'));
+  assert.strictEqual(JSON.parse(W.store['runlog.strava']).rt, 'rt-rotated',
+                     'rotated refresh token persisted');
+
+  var up = last();
+  assert.strictEqual(up.method, 'POST');
+  assert.strictEqual(up.url, 'https://www.strava.com/api/v3/uploads');
+  assert.strictEqual(up.headers.Authorization, 'Bearer at-1');
+  assert(/^multipart\/form-data; boundary=/.test(up.headers['Content-Type']));
+  assert(up.body instanceof Uint8Array, 'text upload sent as explicit UTF-8 bytes');
+  var mp = Buffer.from(up.body).toString('utf8');
+  assert(/name="data_type"\r\n\r\ntcx\r\n/.test(mp), 'data_type follows the export format');
+  assert(/name="sport_type"\r\n\r\nRun\r\n/.test(mp), 'sport_type from activity');
+  assert(mp.indexOf('name="external_id"\r\n\r\nrunlog-' + id + '.tcx\r\n') >= 0, 'external_id');
+  assert(mp.indexOf('name="name"') < 0, 'default-template names are left to Strava');
+  assert(mp.indexOf('<HeartRateBpm><Value>') >= 0, 'TCX carries heart rate');
+  assert(mp.indexOf('name="data_type"') < mp.indexOf('name="file"'), 'fields precede the file');
+
+  up.respond(201, JSON.stringify({ id_str: '9001', status: 'Your activity is still being processed.',
+                                   error: null, activity_id: null }));
+  assert.strictEqual(storedRuns(W)[0].up, 0, 'not marked uploaded while Strava processes');
+  W.flushTimers();
+  var poll = last();
+  assert.strictEqual(poll.method, 'GET');
+  assert.strictEqual(poll.url, 'https://www.strava.com/api/v3/uploads/9001');
+  assert.strictEqual(poll.headers.Authorization, 'Bearer at-1');
+  poll.respond(200, JSON.stringify({ id_str: '9001', status: 'Your activity is still being processed.' }));
+  W.flushTimers();
+  last().respond(200, JSON.stringify({ id_str: '9001', status: 'Your activity is ready.',
+                                       activity_id: 555 }));
+  var r1 = storedRuns(W)[0];
+  assert.strictEqual(r1.up, 1, 'uploaded once Strava reports the activity');
+  assert.strictEqual(r1.upMeta.dest, 'strava');
+  assert.strictEqual(r1.upMeta.id, '555', 'Strava activity id recorded');
+  assert(logs().some(function (m) { return /strava\.com\/activities\/555/.test(m); }),
+         'activity link logged');
+  assert.strictEqual(lastWith(W, 'EXPST').EXPST, 1, 'watch told upload succeeded');
+
+  /* Re-upload: the cached access token is reused; a duplicate is success. */
+  var n1 = W.xhrs.length;
+  retry();
+  assert.strictEqual(W.xhrs.length, n1 + 1, 'valid cached token: no refresh request');
+  assert.strictEqual(last().url, 'https://www.strava.com/api/v3/uploads');
+  last().respond(201, JSON.stringify({ id_str: '9002', activity_id: null, error: null }));
+  W.flushTimers();
+  last().respond(200, JSON.stringify({ id_str: '9002', activity_id: null,
+    error: 'run.tcx duplicate of <a href=\'/activities/555\' target=\'_blank\'>Morning Run</a>' }));
+  assert.strictEqual(storedRuns(W)[0].up, 1, 'duplicate counts as uploaded');
+  assert.strictEqual(storedRuns(W)[0].upMeta.id, '555', 'duplicate keeps the existing id');
+
+  /* A rejected access token is renewed once with the rotated refresh token. */
+  retry();
+  last().respond(401, JSON.stringify({ message: 'Authorization Error' }));
+  var tr2 = last();
+  assert.strictEqual(tr2.url, 'https://www.strava.com/oauth/token', '401 triggers a refresh');
+  assert(/refresh_token=rt-rotated$/.test(tr2.body), 'refresh uses the rotated token');
+  tr2.respond(200, tokenReply('at-2', 'rt-rotated'));
+  assert.strictEqual(last().headers.Authorization, 'Bearer at-2', 'upload retried with new token');
+  last().respond(201, JSON.stringify({ id_str: '9003', activity_id: 777 }));
+  assert.strictEqual(storedRuns(W)[0].upMeta.id, '777', 'immediate activity id skips polling');
+
+  /* Processing errors fail the upload and are logged. */
+  retry();
+  last().respond(201, JSON.stringify({ id_str: '9004' }));
+  W.flushTimers();
+  last().respond(200, JSON.stringify({ id_str: '9004', error: 'Time information is missing' }));
+  assert.strictEqual(storedRuns(W)[0].up, 2, 'processing error marks the upload failed');
+  assert(logs().some(function (m) { return /upload FAILED.*Time information is missing/.test(m); }),
+         'Strava processing error is visible in the phone log');
+
+  /* Unrelated edits and destination switches keep the grant; a new token resets it. */
+  cfg({ fmt: 'gpx', pass: '', passSet: 0, key: '', keySet: 0 });
+  assert.strictEqual(JSON.parse(W.store['runlog.strava']).rt, 'rt-rotated', 'format change keeps grant');
+  cfg({ preset: 'intervals', fmt: 'gpx', pass: '', passSet: 0, key: '', keySet: 0 });
+  cfg({ fmt: 'gpx', pass: '', passSet: 0, key: '', keySet: 0 });
+  assert(W.store['runlog.strava'], 'switching destination and back keeps grant');
+  retry();
+  var mp2 = Buffer.from(last().body).toString('utf8');
+  assert(/name="data_type"\r\n\r\ngpx\r\n/.test(mp2), 'GPX upload declares gpx');
+  last().respond(201, JSON.stringify({ id_str: '9005', activity_id: 778 }));
+  cfg({ key: 'rt-new', keySet: 1, pass: '', passSet: 0 });
+  assert(!W.store['runlog.strava'], 'newly pasted refresh token discards the old grant');
+
+  /* A dead refresh token fails cleanly with a hint. */
+  retry();
+  assert(/refresh_token=rt-new$/.test(last().body), 'fresh pasted token used');
+  last().respond(400, JSON.stringify({ message: 'Bad Request' }));
+  assert.strictEqual(storedRuns(W)[0].up, 2, 'refresh failure marks the upload failed');
+  assert(logs().some(function (m) { return /strava token refresh FAILED \(HTTP 400\)/.test(m); }),
+         'refresh failure logged');
+
+  /* Missing credentials never hit the network. */
+  cfg({ user: '', key: '', keySet: 0, pass: '', passSet: 0, clearPass: 1 });
+  var n2 = W.xhrs.length;
+  retry();
+  assert.strictEqual(W.xhrs.length, n2, 'incomplete Strava settings do not upload');
+  assert.strictEqual(lastWith(W, 'EXPST').EXPST, 2);
+  console.log('scenario 40 (Strava upload, polling and token rotation) OK');
+})();
+
 console.log('\nALL PIPELINE TESTS PASSED');

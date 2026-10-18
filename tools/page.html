@@ -191,6 +191,7 @@
     <p class="note" style="margin-top:0">Uploads are manual &mdash; press Upload on the watch debrief, or "Upload now" on an activity below. Nothing leaves your phone on its own.</p>
     <label>Destination</label>
     <select id="cfgpreset" onchange="cfgUi()">
+      <option value="strava">Strava</option>
       <option value="intervals">intervals.icu (API key)</option>
       <option value="runalyze">Runalyze (personal token)</option>
       <option value="fittrackee">FitTrackee (self-hosted)</option>
@@ -222,13 +223,13 @@
       </label>
     </div>
     <div id="cfguserrow" style="display:none">
-      <label>FitTrackee email</label>
+      <label id="cfguserlab">FitTrackee email</label>
       <input type="text" id="cfguser" placeholder="you@example.com"
              autocapitalize="none" autocorrect="off" spellcheck="false"
              inputmode="email" autocomplete="email">
     </div>
     <div id="cfgpassrow" style="display:none">
-      <label>FitTrackee password</label>
+      <label id="cfgpasslab">FitTrackee password</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="password" id="cfgpass" placeholder="" style="flex:1"
                autocapitalize="none" autocorrect="off" autocomplete="current-password">
@@ -237,7 +238,7 @@
       <label class="tog" id="cfgpasssaved" style="display:none">
         <input type="checkbox" id="cfgpassclear"> Clear saved password
       </label>
-      <p class="note">RunLog logs in to your instance itself and refreshes the token automatically when it expires. Credentials stay in the Pebble app on this phone.</p>
+      <p class="note" id="cfgpassnote">RunLog logs in to your instance itself and refreshes the token automatically when it expires. Credentials stay in the Pebble app on this phone.</p>
     </div>
     <div class="row">
       <button class="dl" onclick="saveCfg()">Save settings &amp; close</button>
@@ -1176,11 +1177,19 @@ function cfgUi(){
   var hosted = (p === 'intervals' || p === 'runalyze');
   var ft = (p === 'fittrackee');
   var endurain = (p === 'endurain');
-  $('cfgurlrow').style.display = hosted ? 'none' : '';
-  $('cfgauthrow').style.display = (hosted || ft || endurain) ? 'none' : '';
-  $('cfgkeyrow').style.display = (hosted || endurain) ? '' : 'none';
-  $('cfguserrow').style.display = ft ? '' : 'none';
-  $('cfgpassrow').style.display = ft ? '' : 'none';
+  var strava = (p === 'strava');
+  $('cfgurlrow').style.display = (hosted || strava) ? 'none' : '';
+  $('cfgauthrow').style.display = (hosted || ft || endurain || strava) ? 'none' : '';
+  $('cfgkeyrow').style.display = (hosted || endurain || strava) ? '' : 'none';
+  $('cfguserrow').style.display = (ft || strava) ? '' : 'none';
+  $('cfgpassrow').style.display = (ft || strava) ? '' : 'none';
+  $('cfguserlab').textContent = strava ? 'Strava client ID' : 'FitTrackee email';
+  $('cfguser').setAttribute('inputmode', strava ? 'numeric' : 'email');
+  $('cfguser').placeholder = strava ? '123456' : 'you@example.com';
+  $('cfgpasslab').textContent = strava ? 'Strava client secret' : 'FitTrackee password';
+  $('cfgpassnote').textContent = strava
+    ? 'From strava.com/settings/api. RunLog trades the refresh token for short-lived access tokens itself and keeps the newest one. Credentials stay in the Pebble app on this phone.'
+    : 'RunLog logs in to your instance itself and refreshes the token automatically when it expires. Credentials stay in the Pebble app on this phone.';
   $('cfgurl').placeholder =
     (p === 'webdav') ? 'https://cloud.example.com/remote.php/dav/files/you/Runs/' :
     ft               ? 'https://fittrackee.your-server.lan' :
@@ -1192,6 +1201,9 @@ function cfgUi(){
   } else if (p === 'runalyze') {
     $('cfgkeylab').textContent = 'Runalyze personal token';
     $('cfgkeyhint').textContent = 'runalyze.com \u2192 Account \u2192 Personal API \u2192 create token (activity_push).';
+  } else if (p === 'strava') {
+    $('cfgkeylab').textContent = 'Strava refresh token';
+    $('cfgkeyhint').textContent = 'Needs the activity:write scope. Run tools/strava_auth.py once on a computer to get one, or see the README.';
   } else if (p === 'endurain') {
     $('cfgkeylab').textContent = 'Endurain API key';
     $('cfgkeyhint').textContent = 'Endurain \u2192 Settings \u2192 Security \u2192 API Keys. Create a key with only the activities:upload scope.';

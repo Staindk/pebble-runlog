@@ -293,6 +293,18 @@ function lastAction(dom) {
   assert.strictEqual(dom.ids.cfgauthrow.style.display, 'none', 'endurain hides generic auth');
   assert(dom.ids.cfgurl.placeholder.indexOf('endurain.') >= 0, 'endurain URL hint');
   assert(dom.ids.cfgkeyhint.textContent.indexOf('activities:upload') >= 0, 'endurain least-privilege scope hint');
+  dom.ids.cfgpreset.value = 'strava'; S.cfgUi();
+  assert.strictEqual(dom.ids.cfgurlrow.style.display, 'none', 'strava needs no URL');
+  assert.strictEqual(dom.ids.cfgauthrow.style.display, 'none', 'strava hides generic auth');
+  assert.strictEqual(dom.ids.cfguserrow.style.display, '', 'strava shows client id');
+  assert.strictEqual(dom.ids.cfgpassrow.style.display, '', 'strava shows client secret');
+  assert.strictEqual(dom.ids.cfgkeyrow.style.display, '', 'strava shows refresh token');
+  assert.strictEqual(dom.ids.cfguserlab.textContent, 'Strava client ID');
+  assert.strictEqual(dom.ids.cfgpasslab.textContent, 'Strava client secret');
+  assert.strictEqual(dom.ids.cfgkeylab.textContent, 'Strava refresh token');
+  assert(dom.ids.cfgkeyhint.textContent.indexOf('activity:write') >= 0, 'strava scope hint');
+  dom.ids.cfgpreset.value = 'fittrackee'; S.cfgUi();
+  assert.strictEqual(dom.ids.cfguserlab.textContent, 'FitTrackee email', 'labels restored');
   dom.ids.cfgpreset.value = 'custom'; S.cfgUi();
   assert.strictEqual(dom.ids.cfguserrow.style.display, 'none', 'email row hidden again');
 
